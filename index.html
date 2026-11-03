@@ -68,6 +68,14 @@
   .mv button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 9px;color:var(--burg);cursor:pointer}
   .hist{font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--line)}
   details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:14px}
+  .guide details{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px}
+  .guide summary{font-size:15px;font-weight:600;color:var(--burg);margin:0;list-style:none}
+  .guide summary::-webkit-details-marker{display:none}
+  .guide summary::after{content:"＋";float:right;color:var(--muted)}
+  .guide details[open] summary::after{content:"－"}
+  .guide ol,.guide ul{margin:10px 0 2px;padding-left:20px;line-height:1.55}
+  .guide li{margin-bottom:4px}
+  .guide b{color:var(--burg)}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .grow{flex:1}
   .btn{background:var(--burg);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:500;cursor:pointer}
@@ -411,7 +419,7 @@ function viewMine() {
   const byMe = TASKS.filter(t => t.createdBy === ME.uid && !(t.assignees || []).every(a => a === ME.uid));
   const list = FILTER === "byme" ? sortTasks(applyFilter(byMe)) : sortTasks(applyFilter(mine));
   const decide = decisionsFor();
-  return `<div class="row"><h2 class="grow">Мои задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
+  return `${guideHint()}<div class="row"><h2 class="grow">Мои задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
     <div class="stat"><div class="card"><b>${open}</b><span class="small muted">активные</span></div>
     <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
     <div class="card" data-view="rating" style="cursor:pointer"><b style="color:${score < 0 ? "var(--bad)" : "var(--ok)"}">${signed(score) || 0}</b><span class="small muted">мои баллы</span></div></div>
@@ -479,6 +487,48 @@ function viewKpi() {
     <div class="charts">${charts}</div>
     <div class="card tablewrap" style="margin-top:10px"><table>${head}${body || `<tr><td colspan="11" class="muted">Пока нет данных</td></tr>`}</table></div>`;
 }
+
+/* ---------- инструкция ---------- */
+function viewGuide() {
+  const sec = (icon, title, body, open) => `<details ${open ? "open" : ""}><summary>${icon} ${title}</summary>${body}</details>`;
+  return `<h2>Как пользоваться</h2><div class="small muted" style="margin:0 4px 12px">Коротко о главном. Нажмите на раздел, чтобы раскрыть.</div><div class="guide">
+  ${sec("🚀", "Начать за 1 минуту", `<ol>
+    <li>Откройте вкладку <b>«Мои задачи»</b> — тут всё, что поручено вам. Красная цифра — новые, просроченные и ждущие вашего решения.</li>
+    <li>Нажмите на задачу, чтобы открыть её.</li>
+    <li>Начали делать — нажмите <b>«В работе»</b>. Закончили — <b>«Сдать на проверку»</b>.</li>
+    <li>Пишите короткий отчёт внизу задачи: что сделано, что мешает.</li></ol>`, true)}
+  ${sec("✅", "Как сдать задачу", `<ol>
+    <li>Отмечайте галочками пункты <b>чек-листа</b>, если он есть.</li>
+    <li>Нажмите <b>«Сдать на проверку»</b>. Задачу проверит тот, кто её поставил.</li>
+    <li>Он <b>примет</b> её (вы получите баллы) или <b>вернёт на доработку</b> с комментарием — тогда доделайте и сдайте снова.</li></ol>`)}
+  ${sec("🙋", "Не успеваю к сроку", `<ul>
+    <li>Откройте задачу → <b>«Попросить перенос срока»</b> → выберите новую дату и напишите причину.</li>
+    <li>Пока постановщик решает, минусы <b>не идут</b>.</li>
+    <li>Лучше просить <b>до</b> срока — дни просрочки до запроса всё равно засчитываются.</li></ul>`)}
+  ${sec("➕", "Поставить задачу коллеге", `<ol>
+    <li>Нажмите <b>«+ Задача»</b>.</li>
+    <li>Напишите, что сделать, выберите <b>кто делает</b>, срок и при необходимости <b>время</b>.</li>
+    <li>Можно отметить <b>🔥 Срочно</b>, добавить <b>чек-лист</b> (каждый пункт с новой строки) и <b>повтор</b> (каждый день / неделю / месяц).</li>
+    <li>Когда исполнитель сдаст задачу, она появится у вас в блоке <b>«Ждут вашего решения»</b> — примите или верните.</li></ol>`)}
+  ${sec("🏆", "Баллы", `<ul>
+    <li>Сделал(а) в срок — <b>+10</b></li>
+    <li>С опозданием или задача без срока — <b>+5</b></li>
+    <li>Каждый день просрочки — <b>−5</b> (не больше −30 за задачу)</li>
+    <li>За задачи, поставленные самому себе, баллов нет. Рейтинг команды — во вкладке <b>«Рейтинг»</b>.</li></ul>`)}
+  ${sec("🗂", "Доска и чужие задачи", `<ul>
+    <li><b>«Доска»</b> — задачи колонками: Не начато → В работе → На проверке → Готово. Двигайте карточки стрелками ← →.</li>
+    <li>Задачи коллег видно во вкладке <b>«Все задачи»</b>. Если вы не участвуете в задаче — её можно только смотреть.</li></ul>`)}
+  ${sec("📱", "Установить на телефон", `<ul>
+    <li><b>iPhone (Safari):</b> кнопка «Поделиться» ⬆️ → «На экран „Домой“».</li>
+    <li><b>Android (Chrome):</b> меню ⋮ → «Добавить на главный экран».</li>
+    <li>Появится иконка Feel it — сайт будет открываться как приложение. При входе оставьте галочку <b>«Запомнить меня»</b>.</li></ul>`)}
+  ${sec("🔔", "Напоминания и вопросы", `<ul>
+    <li>В <b>12:00</b> и <b>17:00</b> бот пишет в группу Feel it — загляните в задачи и обновите статусы.</li>
+    <li>Забыли пароль или что-то не работает — напишите <b>Сурену</b>.</li></ul>`)}
+  </div>`;
+}
+const guideSeenKey = () => "fi_guide_" + ME.uid;
+function guideHint() { try { if (localStorage.getItem(guideSeenKey())) return ""; } catch { return ""; } return `<div class="card row" style="background:var(--rose2)"><div class="grow small">👋 Впервые здесь? Загляните в <b>«Инструкцию»</b> — там всё коротко.</div><button class="btn sec" data-view="guide">Открыть</button><button class="btn ghost small" data-act="hide-guide">✕</button></div>`; }
 
 /* ---------- канбан-доска ---------- */
 function viewBoard() {
@@ -742,7 +792,7 @@ function renderLogin(msg = "") {
 
 function renderShell() {
   const me = USERS.find(u => u.uid === ME.uid);
-  const tabs = [["mine", "Мои задачи"], ["board", "Доска"], ["all", "Все задачи"], ["rating", "Рейтинг"], ["kpi", "KPI"], ["team", "Команда"]];
+  const tabs = [["mine", "Мои задачи"], ["board", "Доска"], ["all", "Все задачи"], ["rating", "Рейтинг"], ["kpi", "KPI"], ["team", "Команда"], ["guide", "Инструкция"]];
   $("#app").innerHTML = `<header><div class="logo">Feel it</div><div class="who">${esc(me?.name || ME.login)}${ME.isAdmin ? " · админ" : ""}</div><button id="logout">Выйти</button></header>
     <nav>${tabs.map(([k, l]) => `<button data-view="${k}" class="${VIEW === k ? "on" : ""}">${l}${k === "mine" ? `<span class="badge hidden" id="mine-badge"></span>` : ""}</button>`).join("")}</nav>
     <main id="main"></main>`;
@@ -752,7 +802,7 @@ function renderShell() {
 function renderMain() {
   const m = $("#main"); if (!m) return;
   if (!USERS.some(u => u.uid === ME.uid) && !ME.isAdmin) { m.innerHTML = `<div class="empty">Ваш вход ещё не добавлен в команду. Напишите Сурену.</div>`; return; }
-  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "board" ? viewBoard() : VIEW === "all" ? viewAll() : VIEW === "rating" ? viewRating() : VIEW === "kpi" ? viewKpi() : viewTeam();
+  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "board" ? viewBoard() : VIEW === "all" ? viewAll() : VIEW === "rating" ? viewRating() : VIEW === "kpi" ? viewKpi() : VIEW === "guide" ? viewGuide() : viewTeam();
   if (VIEW === "board") bindBoardDnD();
   const b = $("#mine-badge"); if (b) { const n = myBadge(); b.textContent = n; b.classList.toggle("hidden", !n); }
   try { document.title = (myBadge() ? `(${myBadge()}) ` : "") + "Feel it — команда"; } catch {}
@@ -784,12 +834,13 @@ document.addEventListener("click", async e => {
   if (!el) { if (e.target.id === "sheet") closeSheet(); return; }
   const d = el.dataset;
   try {
-    if (d.view) { VIEW = d.view; renderMain(); window.scrollTo(0, 0); }
+    if (d.view) { VIEW = d.view; if (d.view === "guide") { try { localStorage.setItem(guideSeenKey(), "1"); } catch {} } renderMain(); window.scrollTo(0, 0); }
     else if (d.filter) { FILTER = d.filter; renderMain(); }
     else if (d.task) sheetTask(d.task);
     else if ("close" in d) closeSheet();
     else if (d.act === "new-task") sheetTaskForm();
     else if (d.act === "report") sheetReport();
+    else if (d.act === "hide-guide") { try { localStorage.setItem(guideSeenKey(), "1"); } catch {} renderMain(); }
     else if (d.act === "copy-report") { const v = $("#rep-text").value; try { await navigator.clipboard.writeText(v); } catch { $("#rep-text").select(); document.execCommand("copy"); } toast("Скопировано — вставь в Telegram"); }
     else if (d.scope) { BOARD_SCOPE = d.scope; renderMain(); }
     else if (d.move) { e.stopPropagation(); const t = TASKS.find(x => x.id === d.id); await setStatus(t, d.move); }
