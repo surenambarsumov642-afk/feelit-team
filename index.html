@@ -178,7 +178,11 @@ async function firebaseBackend() {
         cb(current);
       });
     },
-    async signIn(login, pass) { await authMod.signInWithEmailAndPassword(auth, loginToEmail(login), pass); },
+    async signIn(login, pass, remember = true) {
+      // «Запомнить меня»: вход хранится в браузере и не слетает после закрытия вкладки
+      await authMod.setPersistence(auth, remember ? authMod.browserLocalPersistence : authMod.browserSessionPersistence);
+      await authMod.signInWithEmailAndPassword(auth, loginToEmail(login), pass);
+    },
     async createAdmin(pass) { await authMod.createUserWithEmailAndPassword(auth, loginToEmail(ADMIN_LOGIN), pass); },
     async signOut() { await authMod.signOut(auth); },
     async changePassword(oldPass, newPass) {
@@ -294,8 +298,11 @@ const userName = uid => USERS.find(u => u.uid === uid)?.name || "—";
 const uidByLogin = l => USERS.find(u => u.login === l)?.uid;
 const initials = name => (name || "?").trim()[0]?.toUpperCase() || "?";
 
-function isOverdue(t) { return t.status !== "done" && t.status !== "review" && t.deadline && t.deadline < todayStr(); }
-const PEOPLE = () => USERS.filter(u => u.role !== "bot");
+/* срок = дата + время (если времени нет — до конца дня) */
+function deadlineMs(t, date = t.deadline) { if (!date) return null; const [y, m, d] = date.split("-").map(Number); const [hh, mm] = (t.deadlineTime || "23:59").split(":").map(Number); return new Date(y, m - 1, d, hh, mm, t.deadlineTime ? 0 : 59).getTime(); }
+const fmtDL = t => fmtDate(t.deadline) + (t.deadlineTime ? " " + t.deadlineTime : "");
+function isOverdue(t) { return t.status !== "done" && t.status !== "review" && !!t.deadline && Date.now() > deadlineMs(t); }
+const PEOPLE = () => USERS.filter(u => u.role !== "bot" && u.login !== "bot");
 /* кто принимает результат: админ или постановщик */
 function canAccept(t) { return ME.isAdmin || t.createdBy === ME.uid; }
 /* «новые» задачи — пока исполнитель их не открыл (хранится в этом браузере) */
@@ -328,10 +335,12 @@ const isAdminUid = uid => USERS.find(u => u.uid === uid)?.role === "admin";
 function countsForPoints(t, uid) { return !!t.createdBy && (t.createdBy !== uid || isAdminUid(t.createdBy)); }
 function overDays(t) {
   if (!t.deadline) return 0;
-  let end = t.status === "done" ? (t.doneAt || todayStr()) : t.status === "review" ? (t.submittedAt || todayStr()) : todayStr();
+  const endOfDay = iso => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d, 23, 59, 59).getTime(); };
+  let end = t.status === "done" ? (t.doneMs || (t.doneAt ? endOfDay(t.doneAt) : Date.now())) : t.status === "review" ? (t.submittedMs || (t.submittedAt ? endOfDay(t.submittedAt) : Date.now())) : Date.now();
   const e = t.extension;
-  if (e && e.status === "pending") { const r = isoOf(e.at); if (r < end) end = r; }
-  return Math.max(0, dayDiff(t.deadline, end));
+  if (e && e.status === "pending" && e.at < end) end = e.at;
+  const late = end - deadlineMs(t);
+  return late > 0 ? Math.ceil(late / 864e5) : 0;
 }
 function taskDelta(t, uid) {
   if (!countsForPoints(t, uid)) return 0;
@@ -359,9 +368,9 @@ function extChip(t) {
 
 function deadlineChip(t) {
   if (!t.deadline) return `<span class="chip">без срока</span>`;
-  if (isOverdue(t)) return `<span class="chip over">просрочено · ${fmtDate(t.deadline)}</span>`;
-  if (t.deadline === todayStr() && t.status !== "done") return `<span class="chip today">сегодня</span>`;
-  return `<span class="chip">до ${fmtDate(t.deadline)}</span>`;
+  if (isOverdue(t)) return `<span class="chip over">просрочено · ${fmtDL(t)}</span>`;
+  if (t.deadline === todayStr() && t.status !== "done") return `<span class="chip today">сегодня${t.deadlineTime ? " до " + t.deadlineTime : ""}</span>`;
+  return `<span class="chip">до ${fmtDL(t)}</span>`;
 }
 function statusChip(t) { const s = t.status || "todo"; return `<span class="chip st-${s}">${STATUS[s]}</span>`; }
 
@@ -529,7 +538,7 @@ function buildReport() {
     let x = `• ${t.title} — ${names(t)}`;
     if (t.status === "review") x += " (на проверке)";
     else if (t.extension?.status === "pending") x += ` (просит перенос на ${fmtDate(t.extension.newDeadline)})`;
-    if (isOverdue(t)) x += `, просрочено с ${fmtDate(t.deadline)}`; else if (t.deadline && t.status !== "review") x += `, до ${fmtDate(t.deadline)}`;
+    if (isOverdue(t)) x += `, просрочено с ${fmtDL(t)}`; else if (t.deadline && t.status !== "review") x += `, до ${fmtDL(t)}`;
     return x;
   };
   const out = [`Отчёт Feel It за неделю ${pf(mon)}–${pf(today)}`, ""];
@@ -578,12 +587,12 @@ function sheetPoints(uid) {
 }
 
 function viewTeam() {
-  const list = USERS.slice().sort((a, b) => (b.role === "admin") - (a.role === "admin") || a.name.localeCompare(b.name));
+  const list = USERS.filter(u => ME.isAdmin || u.login !== "bot").sort((a, b) => (b.role === "admin") - (a.role === "admin") || a.name.localeCompare(b.name));
   return `<div class="row"><h2 class="grow">Команда</h2>${ME.isAdmin ? `<button class="btn" data-act="new-user">+ Участник</button>` : ""}</div>
     ${list.map(u => {
       const mine = TASKS.filter(t => (t.assignees || []).includes(u.uid));
       const over = mine.filter(isOverdue).length, open = mine.filter(t => t.status !== "done").length, done = mine.filter(t => t.status === "done").length;
-      return `<div class="card row"><span class="avatar">${esc(initials(u.name))}</span><div class="grow"><b>${esc(u.name)}</b> <span class="small muted">логин: ${esc(u.login)}${u.role === "admin" ? " · админ" : ""}</span>
+      return `<div class="card row"><span class="avatar">${esc(initials(u.name))}</span><div class="grow"><b>${esc(u.name)}</b> <span class="small muted">${ME.isAdmin || u.uid === ME.uid ? "логин: " + esc(u.login) : ""}${u.role === "admin" ? " · админ" : ""}</span>
         <div class="chips" style="margin-top:6px"><span class="chip">активные ${open}</span><span class="chip ${over ? "over" : ""}">просрочено ${over}</span><span class="chip st-done">готово ${done}</span></div></div>
         ${ME.isAdmin && u.role !== "admin" ? `<button class="btn ghost small" data-rmuser="${u.uid}">Убрать</button>` : ""}</div>`;
     }).join("")}
@@ -645,8 +654,8 @@ function sheetTask(id) {
     ${t.desc ? `<div style="white-space:pre-wrap;margin:8px 0">${esc(t.desc)}</div>` : ""}
     ${reviewHtml}${statusHtml}${extHtml}${chkHtml}
     <label style="margin-top:16px">Отчёты и комментарии</label><div id="reports" class="small muted">Загрузка…</div>
-    <textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
-    <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить</button></div>
+    ${editable ? `<textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
+    <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить</button></div>` : `<div class="card small muted" style="margin-top:10px">👀 Только просмотр: вы не участвуете в этой задаче.</div>`}
     ${hist.length ? `<details><summary>История изменений (${hist.length})</summary>${hist.map(h => `<div class="hist"><span class="muted">${fmtTime(h.at)} · ${esc(userName(h.by))}:</span> ${esc(h.text)}</div>`).join("")}</details>` : ""}
     ${canManage(t) ? `<div class="row" style="margin-top:18px"><button class="btn sec" data-edittask="${t.id}">Изменить</button><button class="btn danger" data-deltask="${t.id}">Удалить</button></div>` : ""}`);
   reportUnsub = B.watchReports(id, list => {
@@ -662,8 +671,9 @@ function sheetTaskForm(t = null) {
     <label>Задача</label><input id="f-title" value="${esc(t?.title || "")}" placeholder="Что сделать">
     <label>Подробности</label><textarea id="f-desc" placeholder="Необязательно">${esc(t?.desc || "")}</textarea>
     <label>Кто делает</label><div class="chips" id="f-who">${PEOPLE().map(u => `<label class="chip" style="margin:0;cursor:pointer;color:var(--burg)"><input type="checkbox" value="${u.uid}" ${sel.has(u.uid) ? "checked" : ""} style="width:auto;margin-right:6px">${esc(u.name)}</label>`).join("")}</div>
-    <div class="grid2"><div><label>Срок</label><input id="f-deadline" type="date" value="${esc(t?.deadline || "")}"></div>
-    <div><label>Повторять</label><select id="f-repeat">${Object.entries(REPEAT).map(([k, l]) => `<option value="${k}" ${(t?.repeat || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div class="grid2"><div><label>Срок (дата)</label><input id="f-deadline" type="date" value="${esc(t?.deadline || "")}"></div>
+    <div><label>Время (необязательно)</label><input id="f-time" type="time" value="${esc(t?.deadlineTime || "")}"></div></div>
+    <label>Повторять</label><select id="f-repeat">${Object.entries(REPEAT).map(([k, l]) => `<option value="${k}" ${(t?.repeat || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label class="chip urgent" style="display:inline-flex;margin-top:12px;cursor:pointer"><input id="f-urgent" type="checkbox" ${t?.urgent ? "checked" : ""} style="width:auto;margin-right:6px">🔥 Срочно</label>
     ${t ? "" : `<label>Чек-лист (каждый пункт с новой строки, необязательно)</label><textarea id="f-chk" placeholder="Снять видео\nСмонтировать\nВыложить"></textarea>`}
     <div class="err" id="f-err"></div>
@@ -703,6 +713,7 @@ function renderLogin(msg = "") {
   $("#app").innerHTML = `<div class="login"><div class="logo">Feel it</div><div class="sub">КОМАНДА · ЗАДАЧИ · KPI</div>
     <div class="card"><label>Логин</label><input id="l-login" autocapitalize="off" autocomplete="username" placeholder="например, damir">
     <label>Пароль</label><input id="l-pass" type="password" autocomplete="current-password">
+    <label style="display:flex;gap:8px;align-items:center;color:var(--text);margin-top:12px;cursor:pointer"><input id="l-remember" type="checkbox" checked style="width:auto;margin:0;accent-color:var(--burg)">Запомнить меня</label>
     <div class="err" id="l-err">${esc(msg)}</div>
     <button class="btn" style="width:100%" id="l-go">Войти</button>
     ${DEMO ? `<div class="small muted" style="margin-top:10px">Демо: войдите как suren, damir, kamilla или abbos (пароль любой).</div>` : ""}
@@ -711,7 +722,7 @@ function renderLogin(msg = "") {
     const login = $("#l-login").value.trim(), pass = $("#l-pass").value;
     if (!login || !pass) { $("#l-err").textContent = "Введите логин и пароль"; return; }
     $("#l-go").disabled = true; $("#l-err").textContent = "";
-    try { await B.signIn(login, pass); }
+    try { await B.signIn(login, pass, $("#l-remember").checked); }
     catch (e) {
       $("#l-go").disabled = false;
       const code = e?.code || "";
@@ -751,19 +762,20 @@ function renderMain() {
 /* смена статуса: исполнитель сдаёт на проверку, постановщик принимает */
 async function setStatus(t, s) {
   if (s === "done" && !canAccept(t)) s = "review";
-  if (s === "review") { await B.updateTask(t.id, { status: "review", submittedAt: todayStr() }, "Сдал(а) на проверку"); toast("Отправлено на проверку"); return; }
+  if (s === "review") { await B.updateTask(t.id, { status: "review", submittedAt: todayStr(), submittedMs: Date.now() }, "Сдал(а) на проверку"); toast("Отправлено на проверку"); return; }
   if (s === "done") {
     const doneAt = t.status === "review" ? (t.submittedAt || todayStr()) : todayStr();
-    await B.updateTask(t.id, { status: "done", doneAt }, t.status === "review" ? "Принял(а) результат" : "Завершил(а) задачу");
+    const doneMs = t.status === "review" ? (t.submittedMs || Date.now()) : Date.now();
+    await B.updateTask(t.id, { status: "done", doneAt, doneMs }, t.status === "review" ? "Принял(а) результат" : "Завершил(а) задачу");
     if (t.repeat && t.deadline && !t.repeatSpawned) {
       let nd = addDays(t.deadline, t.repeat); while (nd < todayStr()) nd = addDays(nd, t.repeat);
-      await B.addTask({ title: t.title, desc: t.desc || "", deadline: nd, assignees: t.assignees || [], urgent: !!t.urgent, repeat: t.repeat, checklist: (t.checklist || []).map(x => ({ text: x.text, done: false })), status: "todo", createdBy: t.createdBy || ME.uid });
+      await B.addTask({ title: t.title, desc: t.desc || "", deadline: nd, deadlineTime: t.deadlineTime || "", assignees: t.assignees || [], urgent: !!t.urgent, repeat: t.repeat, checklist: (t.checklist || []).map(x => ({ text: x.text, done: false })), status: "todo", createdBy: t.createdBy || ME.uid });
       await B.updateTask(t.id, { repeatSpawned: true });
       toast("Готово · следующая на " + fmtDate(nd)); return;
     }
     toast("Задача завершена"); return;
   }
-  await B.updateTask(t.id, { status: s, doneAt: null, submittedAt: null }, "Статус: " + STATUS[s]); toast("Статус обновлён");
+  await B.updateTask(t.id, { status: s, doneAt: null, doneMs: null, submittedAt: null, submittedMs: null }, "Статус: " + STATUS[s]); toast("Статус обновлён");
 }
 
 /* ---------- events ---------- */
@@ -796,7 +808,7 @@ document.addEventListener("click", async e => {
     else if (d.return) { $("#ret-form").classList.remove("hidden"); el.classList.add("hidden"); }
     else if (d.sendreturn) {
       const why = $("#ret-reason").value.trim(); if (!why) { $("#ret-err").textContent = "Напишите, что доделать"; return; }
-      await B.updateTask(d.sendreturn, { status: "doing", submittedAt: null }, "Вернул(а) на доработку: " + why);
+      await B.updateTask(d.sendreturn, { status: "doing", submittedAt: null, submittedMs: null }, "Вернул(а) на доработку: " + why);
       await B.addReport(d.sendreturn, "↩️ Вернул(а) на доработку: " + why); closeSheet(); toast("Задача возвращена");
     }
     else if (d.chk) {
@@ -822,11 +834,11 @@ document.addEventListener("click", async e => {
       const assignees = [...document.querySelectorAll("#f-who input:checked")].map(i => i.value);
       if (!title) { $("#f-err").textContent = "Напишите задачу"; return; }
       if (!assignees.length) { $("#f-err").textContent = "Выберите, кто делает"; return; }
-      const data = { title, desc: $("#f-desc").value.trim(), deadline: $("#f-deadline").value, assignees, urgent: $("#f-urgent").checked, repeat: $("#f-repeat").value };
+      const data = { title, desc: $("#f-desc").value.trim(), deadline: $("#f-deadline").value, deadlineTime: $("#f-deadline").value ? $("#f-time").value : "", assignees, urgent: $("#f-urgent").checked, repeat: $("#f-repeat").value };
       if (data.repeat && !data.deadline) { $("#f-err").textContent = "Для повторяющейся задачи нужен срок"; return; }
       if (d.savetask) {
         const old = TASKS.find(x => x.id === d.savetask); const ch = [];
-        if (old.deadline !== data.deadline) ch.push(`срок ${old.deadline ? fmtDate(old.deadline) : "—"} → ${data.deadline ? fmtDate(data.deadline) : "без срока"}`);
+        if (old.deadline !== data.deadline || (old.deadlineTime || "") !== data.deadlineTime) ch.push(`срок ${old.deadline ? fmtDL(old) : "—"} → ${data.deadline ? fmtDL(data) : "без срока"}`);
         if ((old.assignees || []).join() !== assignees.join()) ch.push("исполнители: " + assignees.map(userName).join(", "));
         if (old.title !== title) ch.push("название"); if (!!old.urgent !== data.urgent) ch.push(data.urgent ? "срочно" : "не срочно");
         await B.updateTask(d.savetask, data, "Изменил(а): " + (ch.join("; ") || "описание"));
@@ -849,7 +861,7 @@ document.addEventListener("click", async e => {
     else if (d.approve || d.reject) {
       const t = TASKS.find(x => x.id === (d.approve || d.reject)); const e2 = t.extension; const ok = !!d.approve;
       const patch = { extension: { ...e2, status: ok ? "approved" : "rejected", decidedBy: ME.uid, decidedAt: Date.now() } };
-      if (ok) { patch.origDeadline = t.origDeadline || t.deadline; patch.carryDays = (t.carryDays || 0) + Math.max(0, dayDiff(t.deadline, isoOf(e2.at))); patch.deadline = e2.newDeadline; }
+      if (ok) { patch.origDeadline = t.origDeadline || t.deadline; patch.carryDays = (t.carryDays || 0) + Math.max(0, Math.ceil((e2.at - deadlineMs(t)) / 864e5)); patch.deadline = e2.newDeadline; }
       await B.updateTask(t.id, patch, ok ? `Одобрил(а) перенос на ${fmtDate(e2.newDeadline)}` : "Отклонил(а) перенос");
       await B.addReport(t.id, ok ? `✅ Перенос одобрен: новый срок ${fmtDate(e2.newDeadline)}` : `❌ Перенос отклонён, срок остаётся ${fmtDate(t.deadline)}`);
       closeSheet(); toast(ok ? "Перенос одобрен" : "Перенос отклонён");
