@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Feel it — команда</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&family=Pinyon+Script&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --burg:#4A0D12; --burg2:#6b1a22; --rose:#efe4e2; --rose2:#f7f0ee; --line:#e6d9d7;
+    --text:#2b1416; --muted:#8a6f72; --ok:#2f7a4a; --warn:#b5651d; --bad:#b3261e; --bg:#fbf8f7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:Montserrat,system-ui,sans-serif;font-size:15px}
+  button,input,select,textarea{font:inherit;color:inherit}
+  .hidden{display:none!important}
+  header{position:sticky;top:0;z-index:5;background:var(--burg);color:#fff;padding:10px 16px calc(10px) 16px;display:flex;align-items:center;gap:12px}
+  header .logo{font-family:"Pinyon Script",cursive;font-size:28px;line-height:1}
+  header .who{margin-left:auto;font-size:13px;opacity:.9;text-align:right}
+  header button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
+  nav{display:flex;gap:4px;padding:8px 10px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;position:sticky;top:52px;z-index:4}
+  nav button{border:0;background:transparent;padding:8px 12px;border-radius:20px;color:var(--muted);font-weight:500;white-space:nowrap;cursor:pointer}
+  nav button.on{background:var(--burg);color:#fff}
+  main{max-width:900px;margin:0 auto;padding:14px 12px 80px}
+  h2{font-size:18px;font-weight:600;margin:6px 4px 12px;color:var(--burg)}
+  .muted{color:var(--muted)}
+  .small{font-size:12.5px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+  .task{display:flex;flex-direction:column;gap:6px;cursor:pointer}
+  .task .top{display:flex;gap:8px;align-items:flex-start}
+  .task .title{font-weight:500;flex:1;line-height:1.35}
+  .task.done .title{color:var(--muted);text-decoration:line-through}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chip{font-size:12px;padding:3px 9px;border-radius:12px;background:var(--rose2);color:var(--burg)}
+  .chip.over{background:#fbe5e3;color:var(--bad);font-weight:600}
+  .chip.today{background:#fdf0dd;color:var(--warn);font-weight:600}
+  .chip.st-todo{background:#f1eeee;color:#6b5a5c}
+  .chip.st-doing{background:#e7f0fb;color:#1d5aa6}
+  .chip.st-done{background:#e5f4e4;color:var(--ok)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .grow{flex:1}
+  .btn{background:var(--burg);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:500;cursor:pointer}
+  .btn.sec{background:#fff;color:var(--burg);border:1px solid var(--burg)}
+  .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #e9b9b5}
+  .btn:disabled{opacity:.5}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:10px 0 4px}
+  input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  textarea{min-height:80px;resize:vertical}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 2px 12px}
+  .filters button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:6px 11px;font-size:13px;cursor:pointer;color:var(--muted)}
+  .filters button.on{border-color:var(--burg);color:var(--burg);font-weight:600}
+  .stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px}
+  .stat .card{margin:0;text-align:center}
+  .stat b{display:block;font-size:22px;color:var(--burg)}
+  .person{margin:18px 4px 8px;font-weight:600;color:var(--burg);display:flex;gap:8px;align-items:center}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--rose);color:var(--burg);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+  .sheet{position:fixed;inset:0;background:rgba(43,20,22,.35);z-index:20;display:flex;justify-content:center;align-items:flex-end}
+  .sheet .panel{background:#fff;width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px 28px}
+  @media(min-width:700px){.sheet{align-items:center}.sheet .panel{border-radius:18px}}
+  .report{border-left:3px solid var(--rose);padding:6px 10px;margin:8px 0}
+  .report .meta{font-size:12px;color:var(--muted)}
+  .login{max-width:360px;margin:9vh auto;padding:0 16px}
+  .login .logo{font-family:"Pinyon Script",cursive;font-size:56px;color:var(--burg);text-align:center}
+  .login .sub{text-align:center;letter-spacing:.3em;font-size:11px;color:var(--muted);margin-bottom:26px}
+  .err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
+  .banner{background:#fdf0dd;color:#7a4a12;font-size:12.5px;padding:8px 14px;text-align:center}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500}
+  .tablewrap{overflow-x:auto}
+  .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+  .charts .card{margin:0}
+  .charts h4{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--burg)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--burg);color:#fff;padding:10px 16px;border-radius:12px;z-index:30;font-size:14px}
+  .empty{text-align:center;color:var(--muted);padding:30px 10px}
+</style>
+</head>
+<body>
+<div id="banner" class="banner hidden">Демо-режим: данные не сохраняются. Чтобы сайт заработал по-настоящему, вставьте настройки Firebase.</div>
+<div id="app"></div>
+<div id="sheet" class="sheet hidden"><div class="panel" id="panel"></div></div>
+
+<script type="module">
+/* =========================================================
+   НАСТРОЙКИ Firebase (проект feelit-team, веб-приложение feelit-team-site).
+   Это не секрет: доступ к данным закрывают правила Firestore.
+   ========================================================= */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDyVgJJ_fuo2pCuyMKWZ4hk3Rvl5iQwN0M",
+  authDomain: "feelit-team.firebaseapp.com",
+  projectId: "feelit-team",
+  storageBucket: "feelit-team.firebasestorage.app",
+  messagingSenderId: "708113094564",
+  appId: "1:708113094564:web:79fda604c9ede1a5a49331"
+};
+const ADMIN_LOGIN = "suren";          // логин администратора (видит и ставит все задачи)
+const LOGIN_DOMAIN = "feelit.uz";     // служебный домен для логинов, почта не используется
+const TEAM_SEED = [                    // команда — для подсказок и задач недели
+  { login: "suren",   name: "Сурен" },
+  { login: "damir",   name: "Дамир" },
+  { login: "kamilla", name: "Камилла" },
+  { login: "abbos",   name: "Аббос" },
+];
+
+const DEMO = !FIREBASE_CONFIG || new URLSearchParams(location.search).has("demo");
+
+/* ------------------------- helpers ------------------------- */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const todayStr = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fmtDate = s => { if (!s) return ""; const [y, m, d] = s.split("-"); const days = ["вс","пн","вт","ср","чт","пт","сб"]; const wd = days[new Date(+y, m - 1, +d).getDay()]; return `${wd} ${d}.${m}`; };
+const fmtTime = ms => { if (!ms) return ""; const d = new Date(ms); return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }); };
+const num = v => (v === "" || v == null || isNaN(+v)) ? null : +v;
+const fmtNum = v => v == null ? "—" : Number(v).toLocaleString("ru-RU");
+const loginToEmail = l => `${l.trim().toLowerCase()}@${LOGIN_DOMAIN}`;
+const emailToLogin = e => (e || "").split("@")[0];
+const mondayOf = s => { const [y, m, d] = s.split("-").map(Number); const dt = new Date(y, m - 1, d); const k = (dt.getDay() + 6) % 7; dt.setDate(dt.getDate() - k); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
+function toast(t) { const el = document.createElement("div"); el.className = "toast"; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
+const STATUS = { todo: "Не начато", doing: "В работе", done: "Готово" };
+
+/* ===================== BACKEND: Firebase ===================== */
+async function firebaseBackend() {
+  const V = "10.12.2";
+  const appMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
+  const authMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
+  const fs = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+  const app = appMod.initializeApp(FIREBASE_CONFIG);
+  const auth = authMod.getAuth(app);
+  const db = fs.getFirestore(app);
+  let current = null;
+
+  return {
+    onAuth(cb) {
+      authMod.onAuthStateChanged(auth, async u => {
+        if (!u) { current = null; return cb(null); }
+        const login = emailToLogin(u.email);
+        current = { uid: u.uid, login, isAdmin: login === ADMIN_LOGIN };
+        if (current.isAdmin) {
+          const ref = fs.doc(db, "users", u.uid);
+          const snap = await fs.getDoc(ref);
+          if (!snap.exists()) await fs.setDoc(ref, { login, name: "Сурен", role: "admin", createdAt: Date.now() });
+        }
+        cb(current);
+      });
+    },
+    async signIn(login, pass) { await authMod.signInWithEmailAndPassword(auth, loginToEmail(login), pass); },
+    async createAdmin(pass) { await authMod.createUserWithEmailAndPassword(auth, loginToEmail(ADMIN_LOGIN), pass); },
+    async signOut() { await authMod.signOut(auth); },
+    async changePassword(oldPass, newPass) {
+      const u = auth.currentUser;
+      const cred = authMod.EmailAuthProvider.credential(u.email, oldPass);
+      await authMod.reauthenticateWithCredential(u, cred);
+      await authMod.updatePassword(u, newPass);
+    },
+    watchUsers(cb) { return fs.onSnapshot(fs.collection(db, "users"), s => cb(s.docs.map(d => ({ uid: d.id, ...d.data() })))); },
+    async createUser(login, name, pass) {
+      // второй экземпляр приложения, чтобы админ не вылетел из своего аккаунта
+      const sec = appMod.initializeApp(FIREBASE_CONFIG, "sec-" + Date.now());
+      const secAuth = authMod.getAuth(sec);
+      try {
+        const cred = await authMod.createUserWithEmailAndPassword(secAuth, loginToEmail(login), pass);
+        await fs.setDoc(fs.doc(db, "users", cred.user.uid), { login: login.trim().toLowerCase(), name, role: "member", createdAt: Date.now() });
+        await authMod.signOut(secAuth);
+      } finally { await appMod.deleteApp(sec); }
+    },
+    async removeUser(uid) { await fs.deleteDoc(fs.doc(db, "users", uid)); },
+    watchTasks(cb) { return fs.onSnapshot(fs.collection(db, "tasks"), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })))); },
+    async addTask(t) { await fs.addDoc(fs.collection(db, "tasks"), { ...t, createdAt: Date.now(), updatedAt: Date.now() }); },
+    async updateTask(id, patch) { await fs.updateDoc(fs.doc(db, "tasks", id), { ...patch, updatedAt: Date.now() }); },
+    async removeTask(id) { await fs.deleteDoc(fs.doc(db, "tasks", id)); },
+    watchReports(taskId, cb) {
+      const q = fs.query(fs.collection(db, "tasks", taskId, "reports"), fs.orderBy("createdAt", "asc"));
+      return fs.onSnapshot(q, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    },
+    async addReport(taskId, text) {
+      await fs.addDoc(fs.collection(db, "tasks", taskId, "reports"), { author: current.uid, text, createdAt: Date.now() });
+      await fs.updateDoc(fs.doc(db, "tasks", taskId), { lastReport: Date.now(), updatedAt: Date.now() }).catch(() => {});
+    },
+    watchKpi(cb) { return fs.onSnapshot(fs.collection(db, "kpi"), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })))); },
+    async saveKpi(id, data) { await fs.setDoc(fs.doc(db, "kpi", id), { ...data, updatedAt: Date.now() }, { merge: true }); },
+    async removeKpi(id) { await fs.deleteDoc(fs.doc(db, "kpi", id)); },
+  };
+}
+
+/* ===================== BACKEND: demo (в памяти) ===================== */
+function demoBackend() {
+  const L = new Set(); const emit = () => L.forEach(f => f());
+  const users = TEAM_SEED.map((p, i) => ({ uid: "u" + i, login: p.login, name: p.name, role: p.login === ADMIN_LOGIN ? "admin" : "member" }));
+  const tasks = []; const reports = {}; const kpi = [];
+  let current = null; let authCb = null; let n = 1;
+  const api = {
+    onAuth(cb) { authCb = cb; cb(null); },
+    async signIn(login) { const u = users.find(x => x.login === login.trim().toLowerCase()); if (!u) throw { code: "auth/invalid-credential" }; current = { uid: u.uid, login: u.login, isAdmin: u.login === ADMIN_LOGIN }; authCb(current); },
+    async createAdmin() { return api.signIn(ADMIN_LOGIN); },
+    async signOut() { current = null; authCb(null); },
+    async changePassword() {},
+    watchUsers(cb) { const f = () => cb(users.map(u => ({ ...u }))); L.add(f); f(); return () => L.delete(f); },
+    async createUser(login, name) { users.push({ uid: "u" + (n++ + 10), login: login.trim().toLowerCase(), name, role: "member" }); emit(); },
+    async removeUser(uid) { const i = users.findIndex(u => u.uid === uid); if (i >= 0) users.splice(i, 1); emit(); },
+    watchTasks(cb) { const f = () => cb(tasks.map(t => ({ ...t }))); L.add(f); f(); return () => L.delete(f); },
+    async addTask(t) { tasks.push({ id: "t" + n++, ...t, createdAt: Date.now(), updatedAt: Date.now() }); emit(); },
+    async updateTask(id, p) { Object.assign(tasks.find(t => t.id === id), p, { updatedAt: Date.now() }); emit(); },
+    async removeTask(id) { tasks.splice(tasks.findIndex(t => t.id === id), 1); emit(); },
+    watchReports(id, cb) { const f = () => cb((reports[id] || []).slice()); L.add(f); f(); return () => L.delete(f); },
+    async addReport(id, text) { (reports[id] ||= []).push({ id: "r" + n++, author: current.uid, text, createdAt: Date.now() }); const t = tasks.find(x => x.id === id); if (t) t.lastReport = Date.now(); emit(); },
+    watchKpi(cb) { const f = () => cb(kpi.map(k => ({ ...k }))); L.add(f); f(); return () => L.delete(f); },
+    async saveKpi(id, data) { const k = kpi.find(x => x.id === id); if (k) Object.assign(k, data); else kpi.push({ id, ...data }); emit(); },
+    async removeKpi(id) { kpi.splice(kpi.findIndex(k => k.id === id), 1); emit(); },
+  };
+  return api;
+}
+
+/* ===================== задачи недели 2–8 ноября ===================== */
+const WEEK_TASKS = [
+  { who: ["abbos"], title: "Утерянный товар на Uzum: следить за проверкой", desc: "Аббос проверяет статус каждый день и пишет в чат, если что-то изменится. На складе сказали, что проверка обычно идёт около месяца (инцидент с 30.10 — ориентир конец ноября). Если утеря подтвердится — подать на компенсацию.", deadline: "" },
+  { who: ["abbos", "suren"], title: "Карточки 4 новых моделей (SK1336, SK1224, SK1296, SK1402)", desc: "Из списка, который заказала Камилла. Вместе посмотреть и, если получится, сделать заранее.", deadline: "" },
+  { who: ["kamilla"], title: "Пакеты: ответ китайского поставщика — цена и количество", desc: "Как придёт — в чат.", deadline: "" },
+  { who: ["kamilla"], title: "Бирки: отправить поставщику, узнать цену и количество", desc: "Размер решили (бирка 55 × 127, ленты S, M, L). После того как Дамир утвердит дизайн.", deadline: "" },
+  { who: ["damir"], title: "Утвердить дизайн бирки", desc: "Бирка 55 × 127 + ленты S, M, L, точки вместо сердечек. После — Камилла отправляет поставщику.", deadline: "2026-11-02" },
+  { who: ["damir", "kamilla"], title: "Съёмка 3 сценариев про нагрудники", desc: "Написать в группу о дате, чтобы Сурен знал, когда будет контент.", deadline: "2026-11-03" },
+  { who: ["suren"], title: "Видео Насти: принять соавторство в Instagram, собрать просмотры", desc: "", deadline: "2026-11-02" },
+  { who: ["suren"], title: "Тесты ИИ-модели", desc: "", deadline: "2026-11-02" },
+  { who: ["suren"], title: "Новый список блогеров для бартера — сразу написать", desc: "", deadline: "2026-11-03" },
+  { who: ["suren"], title: "Модели для фотосъёмки в нашем белье", desc: "Кто не ответил — минус.", deadline: "2026-11-03" },
+  { who: ["suren"], title: "Перевод рилсов зарубежных брендов через SenseIT — идеи для контента", desc: "", deadline: "2026-11-04" },
+  { who: ["suren"], title: "Бирки: булавки — где, сколько, цена", desc: "", deadline: "" },
+  { who: ["suren", "abbos"], title: "Сетки (если нужно) и карточки 4 новых моделей", desc: "", deadline: "" },
+  { who: ["suren"], title: "Пересмотреть формат карточек для Uzum", desc: "", deadline: "" },
+];
+
+/* ===================== KPI поля ===================== */
+const KPI_FIELDS = [
+  { key: "orders", label: "Заказы, шт" },
+  { key: "revenue", label: "Выручка, сум" },
+  { key: "grud", label: "Нагрудники, шт" },
+  { key: "followers", label: "Подписчики (всего)" },
+  { key: "reach", label: "Просмотры рилсов" },
+  { key: "dm", label: "Сообщения в директ" },
+  { key: "posts", label: "Постов и рилсов вышло" },
+  { key: "bartersSent", label: "Бартер: написали блогерам" },
+  { key: "bartersDone", label: "Бартер: вышло видео" },
+];
+
+/* ===================== APP ===================== */
+let B, ME = null, USERS = [], TASKS = [], KPI = [];
+let VIEW = "mine", FILTER = "open", unsub = [];
+
+const userName = uid => USERS.find(u => u.uid === uid)?.name || "—";
+const uidByLogin = l => USERS.find(u => u.login === l)?.uid;
+const initials = name => (name || "?").trim()[0]?.toUpperCase() || "?";
+
+function isOverdue(t) { return t.status !== "done" && t.deadline && t.deadline < todayStr(); }
+function canEdit(t) { return ME.isAdmin || (t.assignees || []).includes(ME.uid); }
+
+function deadlineChip(t) {
+  if (!t.deadline) return `<span class="chip">без срока</span>`;
+  if (isOverdue(t)) return `<span class="chip over">просрочено · ${fmtDate(t.deadline)}</span>`;
+  if (t.deadline === todayStr() && t.status !== "done") return `<span class="chip today">сегодня</span>`;
+  return `<span class="chip">до ${fmtDate(t.deadline)}</span>`;
+}
+function statusChip(t) { const s = t.status || "todo"; return `<span class="chip st-${s}">${STATUS[s]}</span>`; }
+
+function taskCard(t, showWho = true) {
+  const who = (t.assignees || []).map(userName).join(", ");
+  return `<div class="card task ${t.status === "done" ? "done" : ""}" data-task="${t.id}">
+    <div class="top"><div class="title">${esc(t.title)}</div></div>
+    <div class="chips">${statusChip(t)}${deadlineChip(t)}${showWho ? `<span class="chip">${esc(who)}</span>` : ""}${t.lastReport ? `<span class="chip">отчёт ${fmtTime(t.lastReport)}</span>` : ""}</div>
+  </div>`;
+}
+
+function sortTasks(list) {
+  const rank = t => t.status === "done" ? 3 : isOverdue(t) ? 0 : t.deadline ? 1 : 2;
+  return list.slice().sort((a, b) => rank(a) - rank(b) || (a.deadline || "9").localeCompare(b.deadline || "9") || (a.createdAt || 0) - (b.createdAt || 0));
+}
+function applyFilter(list) {
+  if (FILTER === "open") return list.filter(t => t.status !== "done");
+  if (FILTER === "over") return list.filter(isOverdue);
+  if (FILTER === "done") return list.filter(t => t.status === "done");
+  return list;
+}
+function filtersHtml() {
+  const f = [["open", "Активные"], ["over", "Просроченные"], ["done", "Готово"], ["all", "Все"]];
+  return `<div class="filters">${f.map(([k, l]) => `<button data-filter="${k}" class="${FILTER === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+}
+
+/* ---------- views ---------- */
+function viewMine() {
+  const mine = TASKS.filter(t => (t.assignees || []).includes(ME.uid));
+  const open = mine.filter(t => t.status !== "done").length, over = mine.filter(isOverdue).length, done = mine.filter(t => t.status === "done").length;
+  const list = sortTasks(applyFilter(mine));
+  return `<h2>Мои задачи</h2>
+    <div class="stat"><div class="card"><b>${open}</b><span class="small muted">активные</span></div>
+    <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
+    <div class="card"><b style="color:var(--ok)">${done}</b><span class="small muted">готово</span></div></div>
+    ${filtersHtml()}
+    ${list.map(t => taskCard(t, (t.assignees || []).length > 1)).join("") || `<div class="empty">Здесь пусто 👌</div>`}`;
+}
+
+function viewAll() {
+  const people = USERS.slice().sort((a, b) => (a.role === "admin") - (b.role === "admin") || a.name.localeCompare(b.name));
+  const total = TASKS.length, done = TASKS.filter(t => t.status === "done").length, over = TASKS.filter(isOverdue).length;
+  let html = `<div class="row"><h2 class="grow">Все задачи</h2>${ME.isAdmin ? `<button class="btn" data-act="new-task">+ Задача</button>` : ""}</div>
+    <div class="stat"><div class="card"><b>${total - done}</b><span class="small muted">в работе</span></div>
+    <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
+    <div class="card"><b style="color:var(--ok)">${total ? Math.round(done / total * 100) : 0}%</b><span class="small muted">выполнено</span></div></div>
+    ${filtersHtml()}`;
+  if (ME.isAdmin && TASKS.length === 0) html += `<div class="card"><div class="small muted">Задач пока нет. Можно сразу загрузить задачи недели 2–8 ноября, которые ты выложил в группу.</div><div style="margin-top:10px"><button class="btn sec" data-act="seed">Загрузить задачи недели 2–8.11</button></div></div>`;
+  for (const p of people) {
+    const list = sortTasks(applyFilter(TASKS.filter(t => (t.assignees || []).includes(p.uid))));
+    if (!list.length) continue;
+    html += `<div class="person"><span class="avatar">${esc(initials(p.name))}</span>${esc(p.name)}<span class="small muted">· ${list.length}</span></div>`;
+    html += list.map(t => taskCard(t, (t.assignees || []).length > 1)).join("");
+  }
+  return html;
+}
+
+function svgChart(points, color = "#4A0D12") {
+  const W = 300, H = 120, P = 26;
+  if (!points.length) return `<div class="small muted">Нет данных</div>`;
+  const max = Math.max(...points.map(p => p.v), 1);
+  const bw = Math.min(36, (W - P) / points.length - 8);
+  const bars = points.map((p, i) => {
+    const x = P + i * ((W - P) / points.length) + 4; const h = Math.round((p.v / max) * (H - 34)); const y = H - 18 - h;
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="3" fill="${p.base ? "#c9b3b0" : color}"/>
+      <text x="${x + bw / 2}" y="${y - 4}" font-size="9" text-anchor="middle" fill="#2b1416">${fmtNum(p.v)}</text>
+      <text x="${x + bw / 2}" y="${H - 5}" font-size="9" text-anchor="middle" fill="#8a6f72">${esc(p.l)}</text>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${bars}</svg>`;
+}
+
+function kpiRows() { return KPI.slice().sort((a, b) => (a.base ? -1 : b.base ? 1 : a.id.localeCompare(b.id))); }
+function onTimePct(weekId) {
+  if (weekId.startsWith("base")) return null;
+  const start = weekId; const endD = new Date(weekId); endD.setDate(endD.getDate() + 6); const end = endD.toISOString().slice(0, 10);
+  const due = TASKS.filter(t => t.deadline && t.deadline >= start && t.deadline <= end);
+  if (!due.length) return null;
+  const ok = due.filter(t => t.status === "done" && (!t.doneAt || t.doneAt <= t.deadline)).length;
+  return Math.round(ok / due.length * 100);
+}
+function weekLabel(k, short) { if (k.base) return short ? "октябрь" : (k.label || "база"); const [, m, d] = k.id.split("-"); return `${d}.${m}`; }
+
+function viewKpi() {
+  const rows = kpiRows();
+  const charts = [["orders", "Заказы, шт"], ["revenue", "Выручка, сум"], ["grud", "Нагрудники, шт"], ["reach", "Просмотры рилсов"]]
+    .map(([k, l]) => `<div class="card"><h4>${l}</h4>${svgChart(rows.filter(r => r[k] != null).slice(-8).map(r => ({ l: weekLabel(r, true), v: +r[k], base: r.base, l2: 1 })))}</div>`).join("");
+  const head = `<tr><th>Неделя</th>${KPI_FIELDS.map(f => `<th>${f.label}</th>`).join("")}<th>Задачи вовремя</th></tr>`;
+  const body = rows.slice().reverse().map(r => {
+    const pct = onTimePct(r.id);
+    return `<tr ${ME.isAdmin ? `data-kpi="${r.id}" style="cursor:pointer"` : ""}><td>${r.base ? `<b>${esc(weekLabel(r))}</b>` : "нед. с " + weekLabel(r)}</td>${KPI_FIELDS.map(f => `<td>${fmtNum(r[f.key])}</td>`).join("")}<td>${pct == null ? "—" : pct + "%"}</td></tr>`;
+  }).join("");
+  return `<div class="row"><h2 class="grow">KPI</h2>${ME.isAdmin ? `<button class="btn" data-act="new-kpi">+ Неделя</button>` : ""}</div>
+    <div class="small muted" style="margin:0 4px 10px">Цифры вносятся раз в неделю. Серый столбик — точка отсчёта (октябрь). «Задачи вовремя» считается сам по задачам со сроком на этой неделе.</div>
+    ${ME.isAdmin && !KPI.some(k => k.base) ? `<div class="card"><div class="small muted">Добавить октябрь как точку отсчёта: 14 заказов, 4 562 000 сум, 1 нагрудник.</div><div style="margin-top:10px"><button class="btn sec" data-act="seed-kpi">Добавить октябрь</button></div></div>` : ""}
+    <div class="charts">${charts}</div>
+    <div class="card tablewrap" style="margin-top:10px"><table>${head}${body || `<tr><td colspan="11" class="muted">Пока нет данных</td></tr>`}</table></div>`;
+}
+
+function viewTeam() {
+  const list = USERS.slice().sort((a, b) => (b.role === "admin") - (a.role === "admin") || a.name.localeCompare(b.name));
+  return `<div class="row"><h2 class="grow">Команда</h2>${ME.isAdmin ? `<button class="btn" data-act="new-user">+ Участник</button>` : ""}</div>
+    ${list.map(u => {
+      const mine = TASKS.filter(t => (t.assignees || []).includes(u.uid));
+      const over = mine.filter(isOverdue).length, open = mine.filter(t => t.status !== "done").length, done = mine.filter(t => t.status === "done").length;
+      return `<div class="card row"><span class="avatar">${esc(initials(u.name))}</span><div class="grow"><b>${esc(u.name)}</b> <span class="small muted">логин: ${esc(u.login)}${u.role === "admin" ? " · админ" : ""}</span>
+        <div class="chips" style="margin-top:6px"><span class="chip">активные ${open}</span><span class="chip ${over ? "over" : ""}">просрочено ${over}</span><span class="chip st-done">готово ${done}</span></div></div>
+        ${ME.isAdmin && u.role !== "admin" ? `<button class="btn ghost small" data-rmuser="${u.uid}">Убрать</button>` : ""}</div>`;
+    }).join("")}
+    <div class="card"><b>Мой пароль</b><div class="small muted">Сменить пароль для своего входа.</div><div style="margin-top:10px"><button class="btn sec" data-act="change-pass">Сменить пароль</button></div></div>`;
+}
+
+/* ---------- sheets ---------- */
+function openSheet(html) { $("#panel").innerHTML = html; $("#sheet").classList.remove("hidden"); }
+let reportUnsub = null;
+function closeSheet() { $("#sheet").classList.add("hidden"); $("#panel").innerHTML = ""; if (reportUnsub) { reportUnsub(); reportUnsub = null; } }
+
+function sheetTask(id) {
+  const t = TASKS.find(x => x.id === id); if (!t) return;
+  const who = (t.assignees || []).map(userName).join(", ");
+  const editable = canEdit(t);
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">${esc(t.title)}</h2><button class="btn ghost" data-close>✕</button></div>
+    <div class="chips" style="margin:8px 0">${statusChip(t)}${deadlineChip(t)}<span class="chip">${esc(who)}</span></div>
+    ${t.desc ? `<div style="white-space:pre-wrap;margin:8px 0">${esc(t.desc)}</div>` : ""}
+    ${editable ? `<label>Статус</label><div class="row">${Object.entries(STATUS).map(([k, l]) => `<button class="btn ${t.status === k || (!t.status && k === "todo") ? "" : "sec"}" data-status="${k}" data-id="${t.id}">${l}</button>`).join("")}</div>` : ""}
+    <label style="margin-top:16px">Отчёты</label><div id="reports" class="small muted">Загрузка…</div>
+    <label>Новый отчёт</label><textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
+    <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить отчёт</button></div>
+    ${ME.isAdmin ? `<div class="row" style="margin-top:18px"><button class="btn sec" data-edittask="${t.id}">Изменить</button><button class="btn danger" data-deltask="${t.id}">Удалить</button></div>` : ""}`);
+  reportUnsub = B.watchReports(id, list => {
+    const el = $("#reports"); if (!el) return;
+    el.classList.remove("muted");
+    el.innerHTML = list.length ? list.map(r => `<div class="report"><div class="meta">${esc(userName(r.author))} · ${fmtTime(r.createdAt)}</div><div style="white-space:pre-wrap">${esc(r.text)}</div></div>`).join("") : `<span class="muted">Пока нет отчётов</span>`;
+  });
+}
+
+function sheetTaskForm(t = null) {
+  const sel = new Set(t?.assignees || []);
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">${t ? "Изменить задачу" : "Новая задача"}</h2><button class="btn ghost" data-close>✕</button></div>
+    <label>Задача</label><input id="f-title" value="${esc(t?.title || "")}" placeholder="Что сделать">
+    <label>Подробности</label><textarea id="f-desc" placeholder="Необязательно">${esc(t?.desc || "")}</textarea>
+    <label>Кто делает</label><div class="chips" id="f-who">${USERS.map(u => `<label class="chip" style="margin:0;cursor:pointer;color:var(--burg)"><input type="checkbox" value="${u.uid}" ${sel.has(u.uid) ? "checked" : ""} style="width:auto;margin-right:6px">${esc(u.name)}</label>`).join("")}</div>
+    <label>Срок</label><input id="f-deadline" type="date" value="${esc(t?.deadline || "")}">
+    <div class="err" id="f-err"></div>
+    <button class="btn" style="width:100%;margin-top:6px" data-savetask="${t?.id || ""}">${t ? "Сохранить" : "Создать задачу"}</button>`);
+}
+
+function sheetKpi(id = null) {
+  const k = id ? KPI.find(x => x.id === id) : null;
+  const week = k && !k.base ? k.id : mondayOf(todayStr());
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">${k?.base ? "Точка отсчёта" : "Цифры за неделю"}</h2><button class="btn ghost" data-close>✕</button></div>
+    ${k?.base ? `<div class="small muted">${esc(k.label)}</div>` : `<label>Неделя (с понедельника)</label><input id="k-week" type="date" value="${week}">`}
+    <div class="grid2">${KPI_FIELDS.map(f => `<div><label>${f.label}</label><input inputmode="numeric" id="k-${f.key}" value="${k?.[f.key] ?? ""}"></div>`).join("")}</div>
+    <label>Комментарий</label><textarea id="k-note">${esc(k?.note || "")}</textarea>
+    <div class="row" style="margin-top:10px"><button class="btn grow" data-savekpi="${k?.id || ""}">Сохранить</button>${k ? `<button class="btn danger" data-delkpi="${k.id}">Удалить</button>` : ""}</div>`);
+}
+
+function sheetUser() {
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">Новый участник</h2><button class="btn ghost" data-close>✕</button></div>
+    <label>Имя</label><input id="u-name" placeholder="Дамир">
+    <label>Логин (латиницей, без пробелов)</label><input id="u-login" placeholder="damir" autocapitalize="off">
+    <label>Пароль (минимум 6 символов)</label><input id="u-pass" placeholder="придумайте пароль">
+    <div class="small muted" style="margin-top:8px">Логин и пароль передайте человеку в личку. Почта не нужна.</div>
+    <div class="err" id="u-err"></div>
+    <button class="btn" style="width:100%" data-saveuser>Создать вход</button>`);
+}
+
+function sheetPass() {
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">Сменить пароль</h2><button class="btn ghost" data-close>✕</button></div>
+    <label>Текущий пароль</label><input id="p-old" type="password">
+    <label>Новый пароль (минимум 6 символов)</label><input id="p-new" type="password">
+    <div class="err" id="p-err"></div>
+    <button class="btn" style="width:100%" data-savepass>Сохранить</button>`);
+}
+
+/* ---------- render ---------- */
+function renderLogin(msg = "") {
+  $("#app").innerHTML = `<div class="login"><div class="logo">Feel it</div><div class="sub">КОМАНДА · ЗАДАЧИ · KPI</div>
+    <div class="card"><label>Логин</label><input id="l-login" autocapitalize="off" autocomplete="username" placeholder="например, damir">
+    <label>Пароль</label><input id="l-pass" type="password" autocomplete="current-password">
+    <div class="err" id="l-err">${esc(msg)}</div>
+    <button class="btn" style="width:100%" id="l-go">Войти</button>
+    ${DEMO ? `<div class="small muted" style="margin-top:10px">Демо: войдите как suren, damir, kamilla или abbos (пароль любой).</div>` : ""}
+    <div id="l-admin" class="hidden" style="margin-top:12px"><div class="small muted">Аккаунта администратора ещё нет. Создать вход «${ADMIN_LOGIN}» с этим паролем?</div><button class="btn sec" style="width:100%;margin-top:8px" id="l-create">Создать вход администратора</button></div></div></div>`;
+  const go = async () => {
+    const login = $("#l-login").value.trim(), pass = $("#l-pass").value;
+    if (!login || !pass) { $("#l-err").textContent = "Введите логин и пароль"; return; }
+    $("#l-go").disabled = true; $("#l-err").textContent = "";
+    try { await B.signIn(login, pass); }
+    catch (e) {
+      $("#l-go").disabled = false;
+      const code = e?.code || "";
+      if (code.includes("too-many")) $("#l-err").textContent = "Слишком много попыток, подождите пару минут";
+      else $("#l-err").textContent = "Неверный логин или пароль";
+      if (login.toLowerCase() === ADMIN_LOGIN && (code.includes("invalid-credential") || code.includes("user-not-found"))) $("#l-admin").classList.remove("hidden");
+    }
+  };
+  $("#l-go").onclick = go;
+  $("#l-pass").onkeydown = e => { if (e.key === "Enter") go(); };
+  $("#l-create").onclick = async () => {
+    const pass = $("#l-pass").value;
+    if (pass.length < 6) { $("#l-err").textContent = "Пароль минимум 6 символов"; return; }
+    try { await B.createAdmin(pass); } catch (e) { $("#l-err").textContent = (e?.code || "").includes("email-already") ? "Администратор уже есть — проверьте пароль" : "Не получилось: " + (e?.code || e); }
+  };
+}
+
+function renderShell() {
+  const me = USERS.find(u => u.uid === ME.uid);
+  const tabs = [["mine", "Мои задачи"], ["all", "Все задачи"], ["kpi", "KPI"], ["team", "Команда"]];
+  $("#app").innerHTML = `<header><div class="logo">Feel it</div><div class="who">${esc(me?.name || ME.login)}${ME.isAdmin ? " · админ" : ""}</div><button id="logout">Выйти</button></header>
+    <nav>${tabs.map(([k, l]) => `<button data-view="${k}" class="${VIEW === k ? "on" : ""}">${l}</button>`).join("")}</nav>
+    <main id="main"></main>`;
+  $("#logout").onclick = () => B.signOut();
+  renderMain();
+}
+function renderMain() {
+  const m = $("#main"); if (!m) return;
+  if (!USERS.some(u => u.uid === ME.uid) && !ME.isAdmin) { m.innerHTML = `<div class="empty">Ваш вход ещё не добавлен в команду. Напишите Сурену.</div>`; return; }
+  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "all" ? viewAll() : VIEW === "kpi" ? viewKpi() : viewTeam();
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === VIEW));
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", async e => {
+  const el = e.target.closest("[data-view],[data-filter],[data-task],[data-act],[data-close],[data-status],[data-addreport],[data-edittask],[data-deltask],[data-savetask],[data-kpi],[data-savekpi],[data-delkpi],[data-saveuser],[data-rmuser],[data-savepass]");
+  if (!el) { if (e.target.id === "sheet") closeSheet(); return; }
+  const d = el.dataset;
+  try {
+    if (d.view) { VIEW = d.view; renderMain(); window.scrollTo(0, 0); }
+    else if (d.filter) { FILTER = d.filter; renderMain(); }
+    else if (d.task) sheetTask(d.task);
+    else if ("close" in d) closeSheet();
+    else if (d.act === "new-task") sheetTaskForm();
+    else if (d.act === "new-kpi") sheetKpi();
+    else if (d.act === "new-user") sheetUser();
+    else if (d.act === "change-pass") sheetPass();
+    else if (d.act === "seed-kpi") { await B.saveKpi("base-2026-10", { base: true, label: "Октябрь 2026 (4–29.10)", orders: 14, revenue: 4562000, grud: 1 }); toast("Октябрь добавлен"); }
+    else if (d.act === "seed") {
+      const missing = [...new Set(WEEK_TASKS.flatMap(t => t.who))].filter(l => !uidByLogin(l));
+      if (missing.length && !confirm(`Нет входов для: ${missing.join(", ")}. Их задачи загрузятся без исполнителя. Продолжить?`)) return;
+      for (const t of WEEK_TASKS) await B.addTask({ title: t.title, desc: t.desc, deadline: t.deadline, status: "todo", assignees: t.who.map(uidByLogin).filter(Boolean), createdBy: ME.uid });
+      toast("Задачи недели загружены");
+    }
+    else if (d.status) {
+      const patch = { status: d.status }; if (d.status === "done") patch.doneAt = todayStr(); else patch.doneAt = null;
+      await B.updateTask(d.id, patch); closeSheet(); toast("Статус обновлён");
+    }
+    else if (d.addreport) {
+      const text = $("#rtext").value.trim(); if (!text) return;
+      el.disabled = true; await B.addReport(d.addreport, text); $("#rtext").value = ""; el.disabled = false; toast("Отчёт отправлен");
+    }
+    else if (d.edittask) { const t = TASKS.find(x => x.id === d.edittask); closeSheet(); sheetTaskForm(t); }
+    else if (d.deltask) { if (confirm("Удалить задачу?")) { await B.removeTask(d.deltask); closeSheet(); } }
+    else if ("savetask" in d) {
+      const title = $("#f-title").value.trim();
+      const assignees = [...document.querySelectorAll("#f-who input:checked")].map(i => i.value);
+      if (!title) { $("#f-err").textContent = "Напишите задачу"; return; }
+      if (!assignees.length) { $("#f-err").textContent = "Выберите, кто делает"; return; }
+      const data = { title, desc: $("#f-desc").value.trim(), deadline: $("#f-deadline").value, assignees };
+      if (d.savetask) await B.updateTask(d.savetask, data); else await B.addTask({ ...data, status: "todo", createdBy: ME.uid });
+      closeSheet(); toast(d.savetask ? "Сохранено" : "Задача создана");
+    }
+    else if (d.kpi) sheetKpi(d.kpi);
+    else if ("savekpi" in d) {
+      const data = {}; KPI_FIELDS.forEach(f => data[f.key] = num($("#k-" + f.key).value)); data.note = $("#k-note").value.trim();
+      let id = d.savekpi;
+      if (!id || !id.startsWith("base")) { const w = $("#k-week").value; if (!w) return; const nid = mondayOf(w); if (id && id !== nid) await B.removeKpi(id); id = nid; }
+      await B.saveKpi(id, data); closeSheet(); toast("Цифры сохранены");
+    }
+    else if (d.delkpi) { if (confirm("Удалить эту неделю?")) { await B.removeKpi(d.delkpi); closeSheet(); } }
+    else if ("saveuser" in d) {
+      const name = $("#u-name").value.trim(), login = $("#u-login").value.trim().toLowerCase(), pass = $("#u-pass").value;
+      if (!name || !/^[a-z0-9._-]{2,}$/.test(login)) { $("#u-err").textContent = "Имя и логин латиницей, без пробелов"; return; }
+      if (pass.length < 6) { $("#u-err").textContent = "Пароль минимум 6 символов"; return; }
+      if (USERS.some(u => u.login === login)) { $("#u-err").textContent = "Такой логин уже есть"; return; }
+      el.disabled = true;
+      try { await B.createUser(login, name, pass); closeSheet(); toast(`Вход создан: ${login}`); }
+      catch (err) { el.disabled = false; $("#u-err").textContent = (err?.code || "").includes("email-already") ? "Такой логин уже занят" : "Не получилось: " + (err?.code || err); }
+    }
+    else if (d.rmuser) { if (confirm("Убрать участника из команды? Его вход перестанет открывать сайт.")) await B.removeUser(d.rmuser); }
+    else if ("savepass" in d) {
+      const o = $("#p-old").value, n = $("#p-new").value;
+      if (n.length < 6) { $("#p-err").textContent = "Минимум 6 символов"; return; }
+      try { await B.changePassword(o, n); closeSheet(); toast("Пароль изменён"); } catch { $("#p-err").textContent = "Текущий пароль неверный"; }
+    }
+  } catch (err) { console.error(err); toast("Ошибка: " + (err?.code || err?.message || err)); }
+});
+
+/* ---------- start ---------- */
+(async () => {
+  if (DEMO) $("#banner").classList.remove("hidden");
+  try { B = DEMO ? demoBackend() : await firebaseBackend(); }
+  catch (e) { $("#app").innerHTML = `<div class="empty">Не удалось подключиться к Firebase. Проверьте настройки.</div>`; console.error(e); return; }
+  B.onAuth(user => {
+    unsub.forEach(f => f && f()); unsub = []; closeSheet();
+    ME = user; VIEW = "mine"; FILTER = "open";
+    if (!user) return renderLogin();
+    renderShell();
+    unsub.push(B.watchUsers(u => { USERS = u; renderMain(); const me = USERS.find(x => x.uid === ME.uid); const w = $(".who"); if (w && me) w.textContent = me.name + (ME.isAdmin ? " · админ" : ""); }));
+    unsub.push(B.watchTasks(t => { TASKS = t; renderMain(); }));
+    unsub.push(B.watchKpi(k => { KPI = k; renderMain(); }));
+  });
+})();
+</script>
+</body>
+</html>
