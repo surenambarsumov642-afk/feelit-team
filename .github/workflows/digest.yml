@@ -1,0 +1,67 @@
+# Утренняя сводка задач Feel It в Telegram-группу.
+# Секреты (Settings → Secrets and variables → Actions):
+#   TG_TOKEN     — токен бота от @BotFather
+#   BOT_PASSWORD — пароль входа «bot» на сайте команды
+#   TG_CHAT_ID   — id группы (после первого запуска; см. лог)
+name: Сводка в Telegram
+on:
+  schedule:
+    - cron: "37 3 * * *"   # каждый день ≈ 8:37 по Ташкенту
+  workflow_dispatch: {}
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Отправить сводку
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+        run: |
+          cat > digest.mjs <<'JS'
+          const API_KEY = "AIzaSyDyVgJJ_fuo2pCuyMKWZ4hk3Rvl5iQwN0M", PROJECT = "feelit-team";
+          const SITE = "https://surenambarsumov642-afk.github.io/feelit-team/";
+          const { TG_TOKEN, BOT_PASSWORD } = process.env; let CHAT = process.env.TG_CHAT_ID;
+          if (!TG_TOKEN || !BOT_PASSWORD) throw new Error("Нет секретов TG_TOKEN / BOT_PASSWORD");
+          const tg = (m, b) => fetch(`https://api.telegram.org/bot${TG_TOKEN}/${m}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then(r => r.json());
+          if (!CHAT) {
+            const u = await tg("getUpdates");
+            const chats = (u.result || []).map(x => (x.message || x.my_chat_member || x.channel_post || {}).chat).filter(c => c && c.type !== "private");
+            if (!chats.length) throw new Error("Группа не найдена: добавьте бота в группу, напишите там любое сообщение и запустите снова");
+            CHAT = String(chats.at(-1).id);
+            console.log(`>>> TG_CHAT_ID = ${CHAT}  (группа «${chats.at(-1).title}») — сохраните это число в секрет TG_CHAT_ID`);
+          }
+          const auth = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "bot@feelit.uz", password: BOT_PASSWORD, returnSecureToken: true }) }).then(r => r.json());
+          if (!auth.idToken) throw new Error("Не удалось войти ботом: " + JSON.stringify(auth.error || auth));
+          const val = v => v == null ? null : "stringValue" in v ? v.stringValue : "integerValue" in v ? +v.integerValue : "doubleValue" in v ? v.doubleValue : "booleanValue" in v ? v.booleanValue : "nullValue" in v ? null : "arrayValue" in v ? (v.arrayValue.values || []).map(val) : "mapValue" in v ? obj(v.mapValue.fields || {}) : null;
+          const obj = f => Object.fromEntries(Object.entries(f).map(([k, v]) => [k, val(v)]));
+          const list = async col => { const out = []; let tok = ""; do { const r = await fetch(`https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/${col}?pageSize=300${tok ? "&pageToken=" + tok : ""}`, { headers: { Authorization: "Bearer " + auth.idToken } }).then(r => r.json()); (r.documents || []).forEach(d => out.push({ id: d.name.split("/").pop(), ...obj(d.fields || {}) })); tok = r.nextPageToken; } while (tok); return out; };
+          const users = await list("users"), tasks = await list("tasks");
+          const name = uid => users.find(u => u.id === uid)?.name || "—";
+          const now = new Date(Date.now() + 5 * 3600e3); // Ташкент
+          const today = now.toISOString().slice(0, 10);
+          const days = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+          const fd = iso => { const [y, m, d] = iso.split("-"); return `${days[new Date(Date.UTC(+y, m - 1, +d)).getUTCDay()]} ${d}.${m}`; };
+          const dlMs = t => { const [y, m, d] = t.deadline.split("-").map(Number); const [hh, mm] = (t.deadlineTime || "23:59").split(":").map(Number); return Date.UTC(y, m - 1, d, hh - 5, mm, t.deadlineTime ? 0 : 59); };
+          const who = t => (t.assignees || []).map(name).join(", ");
+          const open = tasks.filter(t => t.status !== "done");
+          const over = open.filter(t => t.status !== "review" && t.deadline && Date.now() > dlMs(t));
+          const todayL = open.filter(t => t.status !== "review" && t.deadline === today && !over.includes(t));
+          const ext = open.filter(t => t.extension?.status === "pending");
+          const review = open.filter(t => t.status === "review");
+          const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+          const L = [`☀️ <b>Feel It — задачи на ${fd(today)}</b>`, ""];
+          const sec = (title, arr, fmt) => { if (!arr.length) return; L.push(`<b>${title} (${arr.length})</b>`); arr.forEach(t => L.push("• " + fmt(t))); L.push(""); };
+          sec("🔴 Просрочено", over, t => `${t.urgent ? "🔥 " : ""}${esc(t.title)} — ${esc(who(t))} (срок ${fd(t.deadline)}${t.deadlineTime ? " " + t.deadlineTime : ""})`);
+          sec("📅 Сегодня", todayL, t => `${t.urgent ? "🔥 " : ""}${esc(t.title)} — ${esc(who(t))}${t.deadlineTime ? " до " + t.deadlineTime : ""}`);
+          sec("🙋 Просят перенос", ext, t => `${esc(t.title)} — ${esc(name(t.extension.by))} → ${fd(t.extension.newDeadline)} (решает ${esc(name(t.createdBy))})`);
+          sec("🔍 Ждут проверки", review, t => `${esc(t.title)} — ${esc(who(t))} (принимает ${esc(name(t.createdBy))})`);
+          if (L.length === 2) L.push("Просрочек и задач на сегодня нет 👌", "");
+          L.push(`Всего открытых задач: ${open.length}`, `<a href="${SITE}">Открыть сайт команды</a>`);
+          const r = await tg("sendMessage", { chat_id: CHAT, text: L.join("\n"), parse_mode: "HTML", disable_web_page_preview: true });
+          if (!r.ok) throw new Error("Telegram: " + JSON.stringify(r));
+          console.log("Сводка отправлена");
+          JS
+          node digest.mjs
