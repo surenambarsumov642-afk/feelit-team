@@ -287,9 +287,10 @@ const WEEK_TASKS = [
 
 /* ===================== KPI поля ===================== */
 const KPI_FIELDS = [
-  { key: "orders", label: "Заказы, шт" },
-  { key: "revenue", label: "Выручка, сум" },
-  { key: "grud", label: "Нагрудники, шт" },
+  { key: "orders", label: "Заказы Uzum, шт", uzum: true },
+  { key: "revenue", label: "Выручка Uzum, сум", uzum: true },
+  { key: "grud", label: "Нагрудники, шт", uzum: true },
+  { key: "returns", label: "Возвраты Uzum, шт", uzum: true },
   { key: "followers", label: "Подписчики (всего)" },
   { key: "reach", label: "Просмотры рилсов" },
   { key: "dm", label: "Сообщения в директ" },
@@ -481,8 +482,8 @@ function viewKpi() {
     const pct = onTimePct(r.id);
     return `<tr ${ME.isAdmin ? `data-kpi="${r.id}" style="cursor:pointer"` : ""}><td>${r.base ? `<b>${esc(weekLabel(r))}</b>` : "нед. с " + weekLabel(r)}</td>${KPI_FIELDS.map(f => `<td>${fmtNum(r[f.key])}</td>`).join("")}<td>${pct == null ? "—" : pct + "%"}</td></tr>`;
   }).join("");
-  return `<div class="row"><h2 class="grow">KPI</h2>${ME.isAdmin ? `<button class="btn" data-act="new-kpi">+ Неделя</button>` : ""}</div>
-    <div class="small muted" style="margin:0 4px 10px">Цифры вносятся раз в неделю. Серый столбик — точка отсчёта (октябрь). «Задачи вовремя» считается сам по задачам со сроком на этой неделе.</div>
+  return `<div class="row"><h2 class="grow">KPI</h2>${ME.isAdmin ? `<button class="btn" data-act="new-kpi">+ Неделя</button>` : `<button class="btn" data-act="kpi-uzum">Внести цифры Uzum</button>`}</div>
+    <div class="small muted" style="margin:0 4px 10px">Цифры Uzum вносит Аббос по понедельникам, Instagram и бартеры — Сурен. Серый столбик — точка отсчёта (октябрь). «Задачи вовремя» считается сам по задачам со сроком на этой неделе.</div>
     ${ME.isAdmin && !KPI.some(k => k.base) ? `<div class="card"><div class="small muted">Добавить октябрь как точку отсчёта: 14 заказов, 4 562 000 сум, 1 нагрудник.</div><div style="margin-top:10px"><button class="btn sec" data-act="seed-kpi">Добавить октябрь</button></div></div>` : ""}
     <div class="charts">${charts}</div>
     <div class="card tablewrap" style="margin-top:10px"><table>${head}${body || `<tr><td colspan="11" class="muted">Пока нет данных</td></tr>`}</table></div>`;
@@ -730,14 +731,18 @@ function sheetTaskForm(t = null) {
     <button class="btn" style="width:100%;margin-top:6px" data-savetask="${t?.id || ""}">${t ? "Сохранить" : "Создать задачу"}</button>`);
 }
 
-function sheetKpi(id = null) {
+function lastWeekMonday() { const d = new Date(); d.setDate(d.getDate() - 7); return mondayOf(isoOf(d.getTime())); }
+function sheetKpi(id = null, uzumOnly = false) {
   const k = id ? KPI.find(x => x.id === id) : null;
-  const week = k && !k.base ? k.id : mondayOf(todayStr());
-  openSheet(`<div class="row"><h2 class="grow" style="margin:0">${k?.base ? "Точка отсчёта" : "Цифры за неделю"}</h2><button class="btn ghost" data-close>✕</button></div>
-    ${k?.base ? `<div class="small muted">${esc(k.label)}</div>` : `<label>Неделя (с понедельника)</label><input id="k-week" type="date" value="${week}">`}
-    <div class="grid2">${KPI_FIELDS.map(f => `<div><label>${f.label}</label><input inputmode="numeric" id="k-${f.key}" value="${k?.[f.key] ?? ""}"></div>`).join("")}</div>
-    <label>Комментарий</label><textarea id="k-note">${esc(k?.note || "")}</textarea>
-    <div class="row" style="margin-top:10px"><button class="btn grow" data-savekpi="${k?.id || ""}">Сохранить</button>${k ? `<button class="btn danger" data-delkpi="${k.id}">Удалить</button>` : ""}</div>`);
+  const week = k && !k.base ? k.id : (uzumOnly ? lastWeekMonday() : mondayOf(todayStr()));
+  const fields = uzumOnly ? KPI_FIELDS.filter(f => f.uzum) : KPI_FIELDS;
+  const kk = k || KPI.find(x => x.id === week);
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">${k?.base ? "Точка отсчёта" : uzumOnly ? "Цифры Uzum за неделю" : "Цифры за неделю"}</h2><button class="btn ghost" data-close>✕</button></div>
+    ${uzumOnly ? `<div class="small muted">Берите из статистики Uzum за прошлую неделю (пн–вс). Заказы — все оформленные, выручка — по ним.</div>` : ""}
+    ${k?.base ? `<div class="small muted">${esc(k.label)}</div>` : `<label>Неделя (дата понедельника)</label><input id="k-week" type="date" value="${week}">`}
+    <div class="grid2">${fields.map(f => `<div><label>${f.label}</label><input inputmode="numeric" id="k-${f.key}" value="${kk?.[f.key] ?? ""}"></div>`).join("")}</div>
+    ${uzumOnly ? "" : `<label>Комментарий</label><textarea id="k-note">${esc(k?.note || "")}</textarea>`}
+    <div class="row" style="margin-top:10px"><button class="btn grow" data-savekpi="${k?.id || ""}" data-uzum="${uzumOnly ? 1 : ""}">Сохранить</button>${k && ME.isAdmin ? `<button class="btn danger" data-delkpi="${k.id}">Удалить</button>` : ""}</div>`);
 }
 
 function sheetUser() {
@@ -845,6 +850,7 @@ document.addEventListener("click", async e => {
     else if (d.scope) { BOARD_SCOPE = d.scope; renderMain(); }
     else if (d.move) { e.stopPropagation(); const t = TASKS.find(x => x.id === d.id); await setStatus(t, d.move); }
     else if (d.act === "new-kpi") sheetKpi();
+    else if (d.act === "kpi-uzum") sheetKpi(null, true);
     else if (d.act === "new-user") sheetUser();
     else if (d.act === "change-pass") sheetPass();
     else if (d.act === "seed-kpi") { await B.saveKpi("base-2026-10", { base: true, label: "Октябрь 2026 (4–29.10)", orders: 14, revenue: 4562000, grud: 1 }); toast("Октябрь добавлен"); }
@@ -927,7 +933,9 @@ document.addEventListener("click", async e => {
     else if (d.delpts) { if (confirm("Удалить эту запись?")) await B.removePoints(d.delpts); }
     else if (d.kpi) sheetKpi(d.kpi);
     else if ("savekpi" in d) {
-      const data = {}; KPI_FIELDS.forEach(f => data[f.key] = num($("#k-" + f.key).value)); data.note = $("#k-note").value.trim();
+      const uz = !!d.uzum; const data = {};
+      KPI_FIELDS.filter(f => !uz || f.uzum).forEach(f => { const v = num($("#k-" + f.key).value); if (!uz || v != null) data[f.key] = v; });
+      if (uz) { data.uzumBy = ME.uid; data.uzumAt = Date.now(); } else data.note = $("#k-note").value.trim();
       let id = d.savekpi;
       if (!id || !id.startsWith("base")) { const w = $("#k-week").value; if (!w) return; const nid = mondayOf(w); if (id && id !== nid) await B.removeKpi(id); id = nid; }
       await B.saveKpi(id, data); closeSheet(); toast("Цифры сохранены");
