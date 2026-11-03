@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Feel it — команда</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#4A0D12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Feel it">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&family=Pinyon+Script&display=swap" rel="stylesheet">
 <style>
@@ -15,11 +23,11 @@
   html,body{margin:0;background:var(--bg);color:var(--text);font-family:Montserrat,system-ui,sans-serif;font-size:15px}
   button,input,select,textarea{font:inherit;color:inherit}
   .hidden{display:none!important}
-  header{position:sticky;top:0;z-index:5;background:var(--burg);color:#fff;padding:10px 16px calc(10px) 16px;display:flex;align-items:center;gap:12px}
+  header{position:sticky;top:0;z-index:5;background:var(--burg);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 10px 16px;display:flex;align-items:center;gap:12px}
   header .logo{font-family:"Pinyon Script",cursive;font-size:28px;line-height:1}
   header .who{margin-left:auto;font-size:13px;opacity:.9;text-align:right}
   header button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
-  nav{display:flex;gap:4px;padding:8px 10px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;position:sticky;top:52px;z-index:4}
+  nav{display:flex;gap:4px;padding:8px 10px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;position:sticky;top:calc(52px + env(safe-area-inset-top));z-index:4}
   nav button{border:0;background:transparent;padding:8px 12px;border-radius:20px;color:var(--muted);font-weight:500;white-space:nowrap;cursor:pointer}
   nav button.on{background:var(--burg);color:#fff}
   main{max-width:900px;margin:0 auto;padding:14px 12px 80px}
@@ -38,6 +46,28 @@
   .chip.st-todo{background:#f1eeee;color:#6b5a5c}
   .chip.st-doing{background:#e7f0fb;color:#1d5aa6}
   .chip.st-done{background:#e5f4e4;color:var(--ok)}
+  .chip.st-review{background:#f1e7f8;color:#6b2fa0}
+  .chip.new{background:var(--burg);color:#fff;font-weight:600}
+  .chip.urgent{background:#fde3df;color:var(--bad);font-weight:700}
+  .task.urgent{border-left:4px solid var(--bad)}
+  nav button .badge{display:inline-block;min-width:18px;background:var(--bad);color:#fff;border-radius:9px;padding:0 5px;font-size:11px;line-height:18px;margin-left:5px;text-align:center}
+  nav button.on .badge{background:#fff;color:var(--bad)}
+  .chk{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--line)}
+  .chk input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:var(--burg)}
+  .chk.done span{color:var(--muted);text-decoration:line-through}
+  .chk button{margin-left:auto;border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px}
+  .bar{height:6px;background:var(--rose2);border-radius:4px;overflow:hidden;margin:6px 0}
+  .bar i{display:block;height:100%;background:var(--burg)}
+  .board{display:flex;gap:10px;overflow-x:auto;padding-bottom:10px;scroll-snap-type:x mandatory}
+  .col{flex:0 0 min(78vw,260px);background:var(--rose2);border-radius:14px;padding:8px;scroll-snap-align:start;min-height:200px}
+  .col.drop{outline:2px dashed var(--burg)}
+  .col h3{font-size:13px;margin:4px 6px 8px;color:var(--burg);display:flex;justify-content:space-between}
+  .col .card{margin-bottom:8px;padding:10px 12px}
+  .col .card .title{font-size:14px}
+  .mv{display:flex;justify-content:space-between;margin-top:4px}
+  .mv button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 9px;color:var(--burg);cursor:pointer}
+  .hist{font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:14px}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .grow{flex:1}
   .btn{background:var(--burg);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:500;cursor:pointer}
@@ -120,7 +150,8 @@ const loginToEmail = l => `${l.trim().toLowerCase()}@${LOGIN_DOMAIN}`;
 const emailToLogin = e => (e || "").split("@")[0];
 const mondayOf = s => { const [y, m, d] = s.split("-").map(Number); const dt = new Date(y, m - 1, d); const k = (dt.getDay() + 6) % 7; dt.setDate(dt.getDate() - k); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
 function toast(t) { const el = document.createElement("div"); el.className = "toast"; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
-const STATUS = { todo: "Не начато", doing: "В работе", done: "Готово" };
+const STATUS = { todo: "Не начато", doing: "В работе", review: "На проверке", done: "Готово" };
+const REPEAT = { "": "не повторять", day: "каждый день", week: "каждую неделю", month: "каждый месяц" };
 
 /* ===================== BACKEND: Firebase ===================== */
 async function firebaseBackend() {
@@ -169,8 +200,12 @@ async function firebaseBackend() {
     },
     async removeUser(uid) { await fs.deleteDoc(fs.doc(db, "users", uid)); },
     watchTasks(cb) { return fs.onSnapshot(fs.collection(db, "tasks"), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })))); },
-    async addTask(t) { await fs.addDoc(fs.collection(db, "tasks"), { ...t, createdAt: Date.now(), updatedAt: Date.now() }); },
-    async updateTask(id, patch) { await fs.updateDoc(fs.doc(db, "tasks", id), { ...patch, updatedAt: Date.now() }); },
+    async addTask(t) { await fs.addDoc(fs.collection(db, "tasks"), { ...t, history: [{ at: Date.now(), by: current.uid, text: "Создал(а) задачу" }], createdAt: Date.now(), updatedAt: Date.now() }); },
+    async updateTask(id, patch, log) {
+      const p = { ...patch, updatedAt: Date.now() };
+      if (log) p.history = fs.arrayUnion({ at: Date.now(), by: current.uid, text: log });
+      await fs.updateDoc(fs.doc(db, "tasks", id), p);
+    },
     async removeTask(id) { await fs.deleteDoc(fs.doc(db, "tasks", id)); },
     watchReports(taskId, cb) {
       const q = fs.query(fs.collection(db, "tasks", taskId, "reports"), fs.orderBy("createdAt", "asc"));
@@ -205,8 +240,8 @@ function demoBackend() {
     async createUser(login, name) { users.push({ uid: "u" + (n++ + 10), login: login.trim().toLowerCase(), name, role: "member" }); emit(); },
     async removeUser(uid) { const i = users.findIndex(u => u.uid === uid); if (i >= 0) users.splice(i, 1); emit(); },
     watchTasks(cb) { const f = () => cb(tasks.map(t => ({ ...t }))); L.add(f); f(); return () => L.delete(f); },
-    async addTask(t) { tasks.push({ id: "t" + n++, ...t, createdAt: Date.now(), updatedAt: Date.now() }); emit(); },
-    async updateTask(id, p) { Object.assign(tasks.find(t => t.id === id), p, { updatedAt: Date.now() }); emit(); },
+    async addTask(t) { tasks.push({ id: "t" + n++, ...t, history: [{ at: Date.now(), by: current.uid, text: "Создал(а) задачу" }], createdAt: Date.now(), updatedAt: Date.now() }); emit(); },
+    async updateTask(id, p, log) { const t = tasks.find(t => t.id === id); Object.assign(t, p, { updatedAt: Date.now() }); if (log) (t.history ||= []).push({ at: Date.now(), by: current.uid, text: log }); emit(); },
     async removeTask(id) { tasks.splice(tasks.findIndex(t => t.id === id), 1); emit(); },
     watchReports(id, cb) { const f = () => cb((reports[id] || []).slice()); L.add(f); f(); return () => L.delete(f); },
     async addReport(id, text) { (reports[id] ||= []).push({ id: "r" + n++, author: current.uid, text, createdAt: Date.now() }); const t = tasks.find(x => x.id === id); if (t) t.lastReport = Date.now(); emit(); },
@@ -253,13 +288,25 @@ const KPI_FIELDS = [
 
 /* ===================== APP ===================== */
 let B, ME = null, USERS = [], TASKS = [], KPI = [], POINTS = [];
-let VIEW = "mine", FILTER = "open", unsub = [];
+let VIEW = "mine", FILTER = "open", BOARD_SCOPE = "mine", unsub = [];
 
 const userName = uid => USERS.find(u => u.uid === uid)?.name || "—";
 const uidByLogin = l => USERS.find(u => u.login === l)?.uid;
 const initials = name => (name || "?").trim()[0]?.toUpperCase() || "?";
 
-function isOverdue(t) { return t.status !== "done" && t.deadline && t.deadline < todayStr(); }
+function isOverdue(t) { return t.status !== "done" && t.status !== "review" && t.deadline && t.deadline < todayStr(); }
+const PEOPLE = () => USERS.filter(u => u.role !== "bot");
+/* кто принимает результат: админ или постановщик */
+function canAccept(t) { return ME.isAdmin || t.createdBy === ME.uid; }
+/* «новые» задачи — пока исполнитель их не открыл (хранится в этом браузере) */
+const seenKey = () => "fi_seen_" + ME.uid;
+function seenSet() { try { return new Set(JSON.parse(localStorage.getItem(seenKey()) || "[]")); } catch { return new Set(); } }
+function markSeen(id) { try { const s = seenSet(); if (!s.has(id)) { s.add(id); localStorage.setItem(seenKey(), JSON.stringify([...s].slice(-500))); } } catch {} }
+function isNew(t) { return t.status !== "done" && (t.assignees || []).includes(ME.uid) && t.createdBy !== ME.uid && !seenSet().has(t.id); }
+function decisionsFor() { return TASKS.filter(t => (t.status === "review" && t.createdBy === ME.uid && !(t.assignees || []).every(a => a === ME.uid)) || (t.status !== "done" && t.extension?.status === "pending" && canDecide(t))); }
+function myBadge() { const ids = new Set(); TASKS.forEach(t => { if ((t.assignees || []).includes(ME.uid) && (isNew(t) || isOverdue(t))) ids.add(t.id); }); decisionsFor().forEach(t => ids.add(t.id)); return ids.size; }
+function addDays(iso, rep) { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d); if (rep === "day") dt.setDate(dt.getDate() + 1); else if (rep === "week") dt.setDate(dt.getDate() + 7); else if (rep === "month") dt.setMonth(dt.getMonth() + 1); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; }
+function chkProgress(t) { const c = t.checklist || []; return c.length ? { done: c.filter(x => x.done).length, all: c.length } : null; }
 function canEdit(t) { return ME.isAdmin || (t.assignees || []).includes(ME.uid) || t.createdBy === ME.uid; }
 /* кто может менять и удалять задачу: админ или тот, кто её поставил */
 function canManage(t) { return ME.isAdmin || t.createdBy === ME.uid; }
@@ -281,7 +328,7 @@ const isAdminUid = uid => USERS.find(u => u.uid === uid)?.role === "admin";
 function countsForPoints(t, uid) { return !!t.createdBy && (t.createdBy !== uid || isAdminUid(t.createdBy)); }
 function overDays(t) {
   if (!t.deadline) return 0;
-  let end = t.status === "done" ? (t.doneAt || todayStr()) : todayStr();
+  let end = t.status === "done" ? (t.doneAt || todayStr()) : t.status === "review" ? (t.submittedAt || todayStr()) : todayStr();
   const e = t.extension;
   if (e && e.status === "pending") { const r = isoOf(e.at); if (r < end) end = r; }
   return Math.max(0, dayDiff(t.deadline, end));
@@ -318,16 +365,20 @@ function deadlineChip(t) {
 }
 function statusChip(t) { const s = t.status || "todo"; return `<span class="chip st-${s}">${STATUS[s]}</span>`; }
 
+function extraChips(t) {
+  const c = chkProgress(t);
+  return `${isNew(t) ? `<span class="chip new">новая</span>` : ""}${t.urgent && t.status !== "done" ? `<span class="chip urgent">🔥 срочно</span>` : ""}${c ? `<span class="chip">☑ ${c.done}/${c.all}</span>` : ""}${t.repeat ? `<span class="chip">🔁 ${REPEAT[t.repeat]}</span>` : ""}`;
+}
 function taskCard(t, showWho = true) {
   const who = (t.assignees || []).map(userName).join(", ");
-  return `<div class="card task ${t.status === "done" ? "done" : ""}" data-task="${t.id}">
+  return `<div class="card task ${t.status === "done" ? "done" : ""} ${t.urgent && t.status !== "done" ? "urgent" : ""}" data-task="${t.id}">
     <div class="top"><div class="title">${esc(t.title)}</div></div>
-    <div class="chips">${statusChip(t)}${deadlineChip(t)}${extChip(t)}${pointsChip(t)}${showWho ? `<span class="chip">${esc(who)}</span>` : ""}${t.lastReport ? `<span class="chip">отчёт ${fmtTime(t.lastReport)}</span>` : ""}</div>
+    <div class="chips">${extraChips(t)}${statusChip(t)}${deadlineChip(t)}${extChip(t)}${pointsChip(t)}${showWho ? `<span class="chip">${esc(who)}</span>` : ""}${t.lastReport ? `<span class="chip">отчёт ${fmtTime(t.lastReport)}</span>` : ""}</div>
   </div>`;
 }
 
 function sortTasks(list) {
-  const rank = t => t.status === "done" ? 3 : isOverdue(t) ? 0 : t.deadline ? 1 : 2;
+  const rank = t => t.status === "done" ? 4 : t.urgent ? 0 : isOverdue(t) ? 1 : t.deadline ? 2 : 3;
   return list.slice().sort((a, b) => rank(a) - rank(b) || (a.deadline || "9").localeCompare(b.deadline || "9") || (a.createdAt || 0) - (b.createdAt || 0));
 }
 function applyFilter(list) {
@@ -350,21 +401,21 @@ function viewMine() {
   const score = scoreOf(ME.uid);
   const byMe = TASKS.filter(t => t.createdBy === ME.uid && !(t.assignees || []).every(a => a === ME.uid));
   const list = FILTER === "byme" ? sortTasks(applyFilter(byMe)) : sortTasks(applyFilter(mine));
-  const decide = TASKS.filter(t => t.status !== "done" && t.extension?.status === "pending" && canDecide(t));
+  const decide = decisionsFor();
   return `<div class="row"><h2 class="grow">Мои задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
     <div class="stat"><div class="card"><b>${open}</b><span class="small muted">активные</span></div>
     <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
     <div class="card" data-view="rating" style="cursor:pointer"><b style="color:${score < 0 ? "var(--bad)" : "var(--ok)"}">${signed(score) || 0}</b><span class="small muted">мои баллы</span></div></div>
-    ${decide.length ? `<div class="person">Ждут вашего решения: перенос срока<span class="small muted">· ${decide.length}</span></div>${decide.map(t => taskCard(t)).join("")}<div class="person">Задачи</div>` : ""}
+    ${decide.length ? `<div class="person">Ждут вашего решения<span class="small muted">· ${decide.length}</span></div>${decide.map(t => taskCard(t)).join("")}<div class="person">Задачи</div>` : ""}
     ${filtersHtml(true)}
     ${list.map(t => taskCard(t, FILTER === "byme" || (t.assignees || []).length > 1)).join("") || `<div class="empty">Здесь пусто 👌</div>`}`;
 }
 
 function viewAll() {
   if (FILTER === "byme") FILTER = "open";
-  const people = USERS.slice().sort((a, b) => (a.role === "admin") - (b.role === "admin") || a.name.localeCompare(b.name));
+  const people = PEOPLE().sort((a, b) => (a.role === "admin") - (b.role === "admin") || a.name.localeCompare(b.name));
   const total = TASKS.length, done = TASKS.filter(t => t.status === "done").length, over = TASKS.filter(isOverdue).length;
-  let html = `<div class="row"><h2 class="grow">Все задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
+  let html = `<div class="row"><h2 class="grow">Все задачи</h2>${ME.isAdmin ? `<button class="btn sec" data-act="report">Отчёт Лазизу</button>` : ""}<button class="btn" data-act="new-task">+ Задача</button></div>
     <div class="stat"><div class="card"><b>${total - done}</b><span class="small muted">в работе</span></div>
     <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
     <div class="card"><b style="color:var(--ok)">${total ? Math.round(done / total * 100) : 0}%</b><span class="small muted">выполнено</span></div></div>
@@ -420,8 +471,85 @@ function viewKpi() {
     <div class="card tablewrap" style="margin-top:10px"><table>${head}${body || `<tr><td colspan="11" class="muted">Пока нет данных</td></tr>`}</table></div>`;
 }
 
+/* ---------- канбан-доска ---------- */
+function viewBoard() {
+  const base = BOARD_SCOPE === "mine" ? TASKS.filter(t => (t.assignees || []).includes(ME.uid) || t.createdBy === ME.uid) : TASKS;
+  const weekAgo = isoOf(Date.now() - 14 * 864e5);
+  const cols = [["todo", "Не начато"], ["doing", "В работе"], ["review", "На проверке"], ["done", "Готово"]];
+  const order = cols.map(c => c[0]);
+  const colHtml = ([k, l]) => {
+    let list = base.filter(t => (t.status || "todo") === k);
+    if (k === "done") list = list.filter(t => (t.doneAt || "") >= weekAgo);
+    list = sortTasks(list);
+    return `<div class="col" data-col="${k}"><h3><span>${l}</span><span class="muted">${list.length}</span></h3>
+      ${list.map(t => {
+        const i = order.indexOf(k); const can = canEdit(t);
+        const prev = can && i > 0 && k !== "done" ? order[i - 1] : null;
+        let next = can && i < 3 ? order[i + 1] : null;
+        if (k === "review" && !canAccept(t)) next = null;
+        if (k === "review" && prev && !canAccept(t)) { /* исполнитель не двигает из проверки */ }
+        const prevOk = prev && !(k === "review" && !canAccept(t));
+        return `<div class="card task ${t.status === "done" ? "done" : ""} ${t.urgent && t.status !== "done" ? "urgent" : ""}" data-task="${t.id}" draggable="${can}">
+          <div class="title">${esc(t.title)}</div>
+          <div class="chips" style="margin-top:6px">${extraChips(t)}${deadlineChip(t)}${extChip(t)}<span class="chip">${esc((t.assignees || []).map(userName).join(", "))}</span></div>
+          ${prevOk || next ? `<div class="mv">${prevOk ? `<button data-move="${prev}" data-id="${t.id}">←</button>` : "<span></span>"}${next ? `<button data-move="${next}" data-id="${t.id}">→</button>` : ""}</div>` : ""}
+        </div>`;
+      }).join("") || `<div class="small muted" style="padding:10px 6px">пусто</div>`}</div>`;
+  };
+  return `<div class="row"><h2 class="grow">Доска</h2><button class="btn" data-act="new-task">+ Задача</button></div>
+    <div class="filters"><button data-scope="mine" class="${BOARD_SCOPE === "mine" ? "on" : ""}">Мои</button><button data-scope="all" class="${BOARD_SCOPE === "all" ? "on" : ""}">Все</button></div>
+    <div class="board">${cols.map(colHtml).join("")}</div>
+    <div class="small muted" style="margin:4px">Карточки двигаются стрелками ← → или перетаскиванием (на компьютере). «Готово» у чужой задачи отправляет её на проверку постановщику.</div>`;
+}
+function bindBoardDnD() {
+  document.querySelectorAll(".board .task[draggable=true]").forEach(c => c.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", c.dataset.task)));
+  document.querySelectorAll(".board .col").forEach(col => {
+    col.addEventListener("dragover", e => { e.preventDefault(); col.classList.add("drop"); });
+    col.addEventListener("dragleave", () => col.classList.remove("drop"));
+    col.addEventListener("drop", async e => {
+      e.preventDefault(); col.classList.remove("drop");
+      const t = TASKS.find(x => x.id === e.dataTransfer.getData("text/plain")); const to = col.dataset.col;
+      if (!t || (t.status || "todo") === to) return;
+      if (t.status === "review" && !canAccept(t)) return toast("Задача на проверке у постановщика");
+      try { await setStatus(t, to); } catch (err) { toast("Ошибка: " + (err?.code || err)); }
+    });
+  });
+}
+
+/* ---------- отчёт Лазизу ---------- */
+function buildReport() {
+  const today = todayStr(), mon = mondayOf(today);
+  const pf = iso => { const [, m, d] = iso.split("-"); return `${d}.${m}`; };
+  const names = t => (t.assignees || []).map(userName).join(", ");
+  const done = TASKS.filter(t => t.status === "done" && (t.doneAt || "") >= mon);
+  const open = TASKS.filter(t => t.status !== "done");
+  const bad = open.filter(t => isOverdue(t) || t.extension?.status === "pending");
+  const good = open.filter(t => !bad.includes(t));
+  const line = t => {
+    let x = `• ${t.title} — ${names(t)}`;
+    if (t.status === "review") x += " (на проверке)";
+    else if (t.extension?.status === "pending") x += ` (просит перенос на ${fmtDate(t.extension.newDeadline)})`;
+    if (isOverdue(t)) x += `, просрочено с ${fmtDate(t.deadline)}`; else if (t.deadline && t.status !== "review") x += `, до ${fmtDate(t.deadline)}`;
+    return x;
+  };
+  const out = [`Отчёт Feel It за неделю ${pf(mon)}–${pf(today)}`, ""];
+  out.push(`✅ Сделано (${done.length}):`); out.push(...(done.length ? done.map(t => `• ${t.title} — ${names(t)}`) : ["• пока ничего"])); out.push("");
+  out.push(`🟢 Идёт по плану (${good.length}):`); out.push(...(good.length ? sortTasks(good).map(line) : ["• —"])); out.push("");
+  out.push(`🔴 Не по плану (${bad.length}):`); out.push(...(bad.length ? sortTasks(bad).map(line) : ["• всё в срок 👌"])); out.push("");
+  const k = kpiRows().filter(r => !r.base).slice(-1)[0];
+  if (k) { out.push(`📊 Цифры (неделя с ${weekLabel(k)}):`); KPI_FIELDS.forEach(f => { if (k[f.key] != null) out.push(`• ${f.label}: ${fmtNum(k[f.key])}`); }); out.push(""); }
+  out.push("🏆 Баллы:"); PEOPLE().map(u => [u.name, scoreOf(u.uid)]).sort((a, b) => b[1] - a[1]).forEach(([n, v]) => out.push(`• ${n}: ${signed(v) || 0}`));
+  return out.join("\n");
+}
+function sheetReport() {
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">Отчёт Лазизу</h2><button class="btn ghost" data-close>✕</button></div>
+    <div class="small muted">Собран автоматически по задачам на сайте. Можно поправить текст перед копированием.</div>
+    <textarea id="rep-text" style="min-height:52vh;margin-top:10px;font-size:13.5px">${esc(buildReport())}</textarea>
+    <button class="btn" style="width:100%;margin-top:8px" data-act="copy-report">Скопировать для Telegram</button>`);
+}
+
 function viewRating() {
-  const rows = USERS.map(u => {
+  const rows = PEOPLE().map(u => {
     const mine = TASKS.filter(t => (t.assignees || []).includes(u.uid) && countsForPoints(t, u.uid));
     const onTime = mine.filter(t => t.status === "done" && taskDelta(t, u.uid) === PTS.onTime).length;
     const late = mine.filter(t => (t.carryDays || 0) + overDays(t) > 0).length;
@@ -469,6 +597,7 @@ function closeSheet() { $("#sheet").classList.add("hidden"); $("#panel").innerHT
 
 function sheetTask(id) {
   const t = TASKS.find(x => x.id === id); if (!t) return;
+  markSeen(t.id);
   const who = (t.assignees || []).map(userName).join(", ");
   const editable = canEdit(t);
   const isAssignee = (t.assignees || []).includes(ME.uid);
@@ -481,27 +610,49 @@ function sheetTask(id) {
   } else if (e && e.status !== "pending") {
     extHtml = `<div class="small muted" style="margin-top:8px">Перенос на ${fmtDate(e.newDeadline)} ${e.status === "approved" ? "одобрен" : "отклонён"} (${esc(userName(e.decidedBy))}, ${fmtTime(e.decidedAt)})${t.origDeadline ? ` · первый срок был ${fmtDate(t.origDeadline)}` : ""}</div>`;
   }
-  if (isAssignee && t.status !== "done" && t.deadline && !(e && e.status === "pending")) {
-    extHtml += `<div style="margin-top:10px"><button class="btn sec" data-askext="${t.id}">Попросить перенос срока</button></div>
+  if (isAssignee && t.status !== "done" && t.status !== "review" && t.deadline && !(e && e.status === "pending")) {
+    extHtml += `<div style="margin-top:10px"><button class="btn ghost" data-askext="${t.id}">Попросить перенос срока</button></div>
       <div id="ext-form" class="hidden"><label>Новый срок</label><input id="ext-date" type="date" min="${todayStr()}">
       <label>Почему не успеваю</label><textarea id="ext-reason" placeholder="Коротко причина"></textarea><div class="err" id="ext-err"></div>
       <button class="btn" data-sendext="${t.id}">Отправить запрос</button></div>`;
   }
+  // проверка результата
+  let reviewHtml = "";
+  if (t.status === "review") {
+    reviewHtml = `<div class="card" style="background:#f6effb;border-color:#e2d0f0;margin-top:10px"><b>Задача сдана на проверку</b><div class="small muted">${t.submittedAt ? "сдано " + fmtDate(t.submittedAt) + " · " : ""}баллы начислятся после приёма</div>
+      ${canAccept(t) ? `<div class="row" style="margin-top:10px"><button class="btn" data-accept="${t.id}">Принять</button><button class="btn sec" data-return="${t.id}">Вернуть на доработку</button></div>
+      <div id="ret-form" class="hidden"><label>Что доделать</label><textarea id="ret-reason"></textarea><div class="err" id="ret-err"></div><button class="btn" data-sendreturn="${t.id}">Вернуть</button></div>` : `<div class="small" style="margin-top:6px">Ждёт решения: ${esc(userName(t.createdBy))}</div>`}</div>`;
+  }
+  // статус
+  let statusHtml = "";
+  if (editable && t.status !== "done" && t.status !== "review") {
+    const btns = [["todo", "Не начато"], ["doing", "В работе"], ["done", canAccept(t) ? "Готово" : "Сдать на проверку"]];
+    statusHtml = `<label>Статус</label><div class="row">${btns.map(([k, l]) => `<button class="btn ${(t.status || "todo") === k ? "" : "sec"}" data-status="${k}" data-id="${t.id}">${l}</button>`).join("")}</div>`;
+  } else if (t.status === "done" && canAccept(t)) {
+    statusHtml = `<div style="margin-top:12px"><button class="btn ghost" data-status="doing" data-id="${t.id}">Вернуть в работу</button></div>`;
+  }
+  // чек-лист
+  const c = t.checklist || []; const pr = chkProgress(t);
+  const chkHtml = (c.length || editable) ? `<label style="margin-top:16px">Чек-лист${pr ? ` · ${pr.done} из ${pr.all}` : ""}</label>
+    ${pr ? `<div class="bar"><i style="width:${Math.round(pr.done / pr.all * 100)}%"></i></div>` : ""}
+    ${c.map((x, i) => `<div class="chk ${x.done ? "done" : ""}"><input type="checkbox" data-chk="${i}" data-id="${t.id}" ${x.done ? "checked" : ""} ${editable ? "" : "disabled"}><span>${esc(x.text)}</span>${canManage(t) ? `<button data-chkdel="${i}" data-id="${t.id}" title="Удалить">×</button>` : ""}</div>`).join("")}
+    ${editable ? `<div class="row" style="margin-top:8px"><input id="chk-new" class="grow" style="width:auto;flex:1" placeholder="Новый пункт"><button class="btn sec" data-chkadd="${t.id}">+</button></div>` : ""}` : "";
+  const hist = (t.history || []).slice().reverse();
   const myDelta = isAssignee && countsForPoints(t, ME.uid) ? taskDelta(t, ME.uid) : null;
   openSheet(`<div class="row"><h2 class="grow" style="margin:0">${esc(t.title)}</h2><button class="btn ghost" data-close>✕</button></div>
-    <div class="chips" style="margin:8px 0">${statusChip(t)}${deadlineChip(t)}${extChip(t)}<span class="chip">${esc(who)}</span></div>
+    <div class="chips" style="margin:8px 0">${t.urgent && t.status !== "done" ? `<span class="chip urgent">🔥 срочно</span>` : ""}${statusChip(t)}${deadlineChip(t)}${extChip(t)}<span class="chip">${esc(who)}</span>${t.repeat ? `<span class="chip">🔁 ${REPEAT[t.repeat]}</span>` : ""}</div>
     <div class="small muted">Поставил(а): ${esc(userName(t.createdBy))}${myDelta != null ? ` · мои баллы по задаче: <b>${signed(myDelta) || 0}</b>` : ""}</div>
     ${t.desc ? `<div style="white-space:pre-wrap;margin:8px 0">${esc(t.desc)}</div>` : ""}
-    ${extHtml}
-    ${editable ? `<label>Статус</label><div class="row">${Object.entries(STATUS).map(([k, l]) => `<button class="btn ${t.status === k || (!t.status && k === "todo") ? "" : "sec"}" data-status="${k}" data-id="${t.id}">${l}</button>`).join("")}</div>` : ""}
-    <label style="margin-top:16px">Отчёты</label><div id="reports" class="small muted">Загрузка…</div>
-    <label>Новый отчёт</label><textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
-    <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить отчёт</button></div>
+    ${reviewHtml}${statusHtml}${extHtml}${chkHtml}
+    <label style="margin-top:16px">Отчёты и комментарии</label><div id="reports" class="small muted">Загрузка…</div>
+    <textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
+    <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить</button></div>
+    ${hist.length ? `<details><summary>История изменений (${hist.length})</summary>${hist.map(h => `<div class="hist"><span class="muted">${fmtTime(h.at)} · ${esc(userName(h.by))}:</span> ${esc(h.text)}</div>`).join("")}</details>` : ""}
     ${canManage(t) ? `<div class="row" style="margin-top:18px"><button class="btn sec" data-edittask="${t.id}">Изменить</button><button class="btn danger" data-deltask="${t.id}">Удалить</button></div>` : ""}`);
   reportUnsub = B.watchReports(id, list => {
     const el = $("#reports"); if (!el) return;
     el.classList.remove("muted");
-    el.innerHTML = list.length ? list.map(r => `<div class="report"><div class="meta">${esc(userName(r.author))} · ${fmtTime(r.createdAt)}</div><div style="white-space:pre-wrap">${esc(r.text)}</div></div>`).join("") : `<span class="muted">Пока нет отчётов</span>`;
+    el.innerHTML = list.length ? list.map(r => `<div class="report"><div class="meta">${esc(userName(r.author))} · ${fmtTime(r.createdAt)}</div><div style="white-space:pre-wrap">${esc(r.text)}</div></div>`).join("") : `<span class="muted">Пока пусто</span>`;
   });
 }
 
@@ -510,8 +661,11 @@ function sheetTaskForm(t = null) {
   openSheet(`<div class="row"><h2 class="grow" style="margin:0">${t ? "Изменить задачу" : "Новая задача"}</h2><button class="btn ghost" data-close>✕</button></div>
     <label>Задача</label><input id="f-title" value="${esc(t?.title || "")}" placeholder="Что сделать">
     <label>Подробности</label><textarea id="f-desc" placeholder="Необязательно">${esc(t?.desc || "")}</textarea>
-    <label>Кто делает</label><div class="chips" id="f-who">${USERS.map(u => `<label class="chip" style="margin:0;cursor:pointer;color:var(--burg)"><input type="checkbox" value="${u.uid}" ${sel.has(u.uid) ? "checked" : ""} style="width:auto;margin-right:6px">${esc(u.name)}</label>`).join("")}</div>
-    <label>Срок</label><input id="f-deadline" type="date" value="${esc(t?.deadline || "")}">
+    <label>Кто делает</label><div class="chips" id="f-who">${PEOPLE().map(u => `<label class="chip" style="margin:0;cursor:pointer;color:var(--burg)"><input type="checkbox" value="${u.uid}" ${sel.has(u.uid) ? "checked" : ""} style="width:auto;margin-right:6px">${esc(u.name)}</label>`).join("")}</div>
+    <div class="grid2"><div><label>Срок</label><input id="f-deadline" type="date" value="${esc(t?.deadline || "")}"></div>
+    <div><label>Повторять</label><select id="f-repeat">${Object.entries(REPEAT).map(([k, l]) => `<option value="${k}" ${(t?.repeat || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <label class="chip urgent" style="display:inline-flex;margin-top:12px;cursor:pointer"><input id="f-urgent" type="checkbox" ${t?.urgent ? "checked" : ""} style="width:auto;margin-right:6px">🔥 Срочно</label>
+    ${t ? "" : `<label>Чек-лист (каждый пункт с новой строки, необязательно)</label><textarea id="f-chk" placeholder="Снять видео\nСмонтировать\nВыложить"></textarea>`}
     <div class="err" id="f-err"></div>
     <button class="btn" style="width:100%;margin-top:6px" data-savetask="${t?.id || ""}">${t ? "Сохранить" : "Создать задачу"}</button>`);
 }
@@ -577,9 +731,9 @@ function renderLogin(msg = "") {
 
 function renderShell() {
   const me = USERS.find(u => u.uid === ME.uid);
-  const tabs = [["mine", "Мои задачи"], ["all", "Все задачи"], ["rating", "Рейтинг"], ["kpi", "KPI"], ["team", "Команда"]];
+  const tabs = [["mine", "Мои задачи"], ["board", "Доска"], ["all", "Все задачи"], ["rating", "Рейтинг"], ["kpi", "KPI"], ["team", "Команда"]];
   $("#app").innerHTML = `<header><div class="logo">Feel it</div><div class="who">${esc(me?.name || ME.login)}${ME.isAdmin ? " · админ" : ""}</div><button id="logout">Выйти</button></header>
-    <nav>${tabs.map(([k, l]) => `<button data-view="${k}" class="${VIEW === k ? "on" : ""}">${l}</button>`).join("")}</nav>
+    <nav>${tabs.map(([k, l]) => `<button data-view="${k}" class="${VIEW === k ? "on" : ""}">${l}${k === "mine" ? `<span class="badge hidden" id="mine-badge"></span>` : ""}</button>`).join("")}</nav>
     <main id="main"></main>`;
   $("#logout").onclick = () => B.signOut();
   renderMain();
@@ -587,13 +741,34 @@ function renderShell() {
 function renderMain() {
   const m = $("#main"); if (!m) return;
   if (!USERS.some(u => u.uid === ME.uid) && !ME.isAdmin) { m.innerHTML = `<div class="empty">Ваш вход ещё не добавлен в команду. Напишите Сурену.</div>`; return; }
-  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "all" ? viewAll() : VIEW === "rating" ? viewRating() : VIEW === "kpi" ? viewKpi() : viewTeam();
+  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "board" ? viewBoard() : VIEW === "all" ? viewAll() : VIEW === "rating" ? viewRating() : VIEW === "kpi" ? viewKpi() : viewTeam();
+  if (VIEW === "board") bindBoardDnD();
+  const b = $("#mine-badge"); if (b) { const n = myBadge(); b.textContent = n; b.classList.toggle("hidden", !n); }
+  try { document.title = (myBadge() ? `(${myBadge()}) ` : "") + "Feel it — команда"; } catch {}
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === VIEW));
+}
+
+/* смена статуса: исполнитель сдаёт на проверку, постановщик принимает */
+async function setStatus(t, s) {
+  if (s === "done" && !canAccept(t)) s = "review";
+  if (s === "review") { await B.updateTask(t.id, { status: "review", submittedAt: todayStr() }, "Сдал(а) на проверку"); toast("Отправлено на проверку"); return; }
+  if (s === "done") {
+    const doneAt = t.status === "review" ? (t.submittedAt || todayStr()) : todayStr();
+    await B.updateTask(t.id, { status: "done", doneAt }, t.status === "review" ? "Принял(а) результат" : "Завершил(а) задачу");
+    if (t.repeat && t.deadline && !t.repeatSpawned) {
+      let nd = addDays(t.deadline, t.repeat); while (nd < todayStr()) nd = addDays(nd, t.repeat);
+      await B.addTask({ title: t.title, desc: t.desc || "", deadline: nd, assignees: t.assignees || [], urgent: !!t.urgent, repeat: t.repeat, checklist: (t.checklist || []).map(x => ({ text: x.text, done: false })), status: "todo", createdBy: t.createdBy || ME.uid });
+      await B.updateTask(t.id, { repeatSpawned: true });
+      toast("Готово · следующая на " + fmtDate(nd)); return;
+    }
+    toast("Задача завершена"); return;
+  }
+  await B.updateTask(t.id, { status: s, doneAt: null, submittedAt: null }, "Статус: " + STATUS[s]); toast("Статус обновлён");
 }
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e => {
-  const el = e.target.closest("[data-view],[data-filter],[data-task],[data-act],[data-close],[data-status],[data-addreport],[data-edittask],[data-deltask],[data-savetask],[data-kpi],[data-savekpi],[data-delkpi],[data-saveuser],[data-rmuser],[data-savepass],[data-askext],[data-sendext],[data-approve],[data-reject],[data-adjpts],[data-savepts],[data-delpts]");
+  const el = e.target.closest("[data-view],[data-filter],[data-task],[data-act],[data-close],[data-status],[data-addreport],[data-edittask],[data-deltask],[data-savetask],[data-kpi],[data-savekpi],[data-delkpi],[data-saveuser],[data-rmuser],[data-savepass],[data-askext],[data-sendext],[data-approve],[data-reject],[data-adjpts],[data-savepts],[data-delpts],[data-accept],[data-return],[data-sendreturn],[data-chk],[data-chkdel],[data-chkadd],[data-move],[data-scope],[data-act]");
   if (!el) { if (e.target.id === "sheet") closeSheet(); return; }
   const d = el.dataset;
   try {
@@ -602,6 +777,10 @@ document.addEventListener("click", async e => {
     else if (d.task) sheetTask(d.task);
     else if ("close" in d) closeSheet();
     else if (d.act === "new-task") sheetTaskForm();
+    else if (d.act === "report") sheetReport();
+    else if (d.act === "copy-report") { const v = $("#rep-text").value; try { await navigator.clipboard.writeText(v); } catch { $("#rep-text").select(); document.execCommand("copy"); } toast("Скопировано — вставь в Telegram"); }
+    else if (d.scope) { BOARD_SCOPE = d.scope; renderMain(); }
+    else if (d.move) { e.stopPropagation(); const t = TASKS.find(x => x.id === d.id); await setStatus(t, d.move); }
     else if (d.act === "new-kpi") sheetKpi();
     else if (d.act === "new-user") sheetUser();
     else if (d.act === "change-pass") sheetPass();
@@ -612,9 +791,25 @@ document.addEventListener("click", async e => {
       for (const t of WEEK_TASKS) await B.addTask({ title: t.title, desc: t.desc, deadline: t.deadline, status: "todo", assignees: t.who.map(uidByLogin).filter(Boolean), createdBy: ME.uid });
       toast("Задачи недели загружены");
     }
-    else if (d.status) {
-      const patch = { status: d.status }; if (d.status === "done") patch.doneAt = todayStr(); else patch.doneAt = null;
-      await B.updateTask(d.id, patch); closeSheet(); toast("Статус обновлён");
+    else if (d.status) { await setStatus(TASKS.find(x => x.id === d.id), d.status); closeSheet(); }
+    else if (d.accept) { await setStatus(TASKS.find(x => x.id === d.accept), "done"); closeSheet(); }
+    else if (d.return) { $("#ret-form").classList.remove("hidden"); el.classList.add("hidden"); }
+    else if (d.sendreturn) {
+      const why = $("#ret-reason").value.trim(); if (!why) { $("#ret-err").textContent = "Напишите, что доделать"; return; }
+      await B.updateTask(d.sendreturn, { status: "doing", submittedAt: null }, "Вернул(а) на доработку: " + why);
+      await B.addReport(d.sendreturn, "↩️ Вернул(а) на доработку: " + why); closeSheet(); toast("Задача возвращена");
+    }
+    else if (d.chk) {
+      const t = TASKS.find(x => x.id === d.id); const c = (t.checklist || []).map(x => ({ ...x })); c[+d.chk].done = el.checked;
+      await B.updateTask(t.id, { checklist: c }); sheetTask(t.id);
+    }
+    else if (d.chkdel) {
+      const t = TASKS.find(x => x.id === d.id); const c = (t.checklist || []).filter((_, i) => i !== +d.chkdel);
+      await B.updateTask(t.id, { checklist: c }); sheetTask(t.id);
+    }
+    else if (d.chkadd) {
+      const v = $("#chk-new").value.trim(); if (!v) return; const t = TASKS.find(x => x.id === d.chkadd);
+      await B.updateTask(t.id, { checklist: [...(t.checklist || []), { text: v, done: false }] }, "Добавил(а) пункт: " + v); sheetTask(t.id);
     }
     else if (d.addreport) {
       const text = $("#rtext").value.trim(); if (!text) return;
@@ -627,8 +822,18 @@ document.addEventListener("click", async e => {
       const assignees = [...document.querySelectorAll("#f-who input:checked")].map(i => i.value);
       if (!title) { $("#f-err").textContent = "Напишите задачу"; return; }
       if (!assignees.length) { $("#f-err").textContent = "Выберите, кто делает"; return; }
-      const data = { title, desc: $("#f-desc").value.trim(), deadline: $("#f-deadline").value, assignees };
-      if (d.savetask) await B.updateTask(d.savetask, data); else await B.addTask({ ...data, status: "todo", createdBy: ME.uid });
+      const data = { title, desc: $("#f-desc").value.trim(), deadline: $("#f-deadline").value, assignees, urgent: $("#f-urgent").checked, repeat: $("#f-repeat").value };
+      if (data.repeat && !data.deadline) { $("#f-err").textContent = "Для повторяющейся задачи нужен срок"; return; }
+      if (d.savetask) {
+        const old = TASKS.find(x => x.id === d.savetask); const ch = [];
+        if (old.deadline !== data.deadline) ch.push(`срок ${old.deadline ? fmtDate(old.deadline) : "—"} → ${data.deadline ? fmtDate(data.deadline) : "без срока"}`);
+        if ((old.assignees || []).join() !== assignees.join()) ch.push("исполнители: " + assignees.map(userName).join(", "));
+        if (old.title !== title) ch.push("название"); if (!!old.urgent !== data.urgent) ch.push(data.urgent ? "срочно" : "не срочно");
+        await B.updateTask(d.savetask, data, "Изменил(а): " + (ch.join("; ") || "описание"));
+      } else {
+        const checklist = ($("#f-chk")?.value || "").split("\n").map(x => x.trim()).filter(Boolean).map(text => ({ text, done: false }));
+        await B.addTask({ ...data, checklist, status: "todo", createdBy: ME.uid });
+      }
       closeSheet(); toast(d.savetask ? "Сохранено" : "Задача создана");
     }
     else if (d.askext) { $("#ext-form").classList.remove("hidden"); el.classList.add("hidden"); }
@@ -637,7 +842,7 @@ document.addEventListener("click", async e => {
       if (!nd || nd <= t.deadline) { $("#ext-err").textContent = "Выберите дату позже текущего срока"; return; }
       if (!reason) { $("#ext-err").textContent = "Напишите причину"; return; }
       el.disabled = true;
-      await B.updateTask(t.id, { extension: { by: ME.uid, newDeadline: nd, reason, at: Date.now(), status: "pending" } });
+      await B.updateTask(t.id, { extension: { by: ME.uid, newDeadline: nd, reason, at: Date.now(), status: "pending" } }, `Попросил(а) перенос на ${fmtDate(nd)}`);
       await B.addReport(t.id, `🙋 Прошу перенести срок с ${fmtDate(t.deadline)} на ${fmtDate(nd)}. Причина: ${reason}`);
       closeSheet(); toast("Запрос отправлен");
     }
@@ -645,7 +850,7 @@ document.addEventListener("click", async e => {
       const t = TASKS.find(x => x.id === (d.approve || d.reject)); const e2 = t.extension; const ok = !!d.approve;
       const patch = { extension: { ...e2, status: ok ? "approved" : "rejected", decidedBy: ME.uid, decidedAt: Date.now() } };
       if (ok) { patch.origDeadline = t.origDeadline || t.deadline; patch.carryDays = (t.carryDays || 0) + Math.max(0, dayDiff(t.deadline, isoOf(e2.at))); patch.deadline = e2.newDeadline; }
-      await B.updateTask(t.id, patch);
+      await B.updateTask(t.id, patch, ok ? `Одобрил(а) перенос на ${fmtDate(e2.newDeadline)}` : "Отклонил(а) перенос");
       await B.addReport(t.id, ok ? `✅ Перенос одобрен: новый срок ${fmtDate(e2.newDeadline)}` : `❌ Перенос отклонён, срок остаётся ${fmtDate(t.deadline)}`);
       closeSheet(); toast(ok ? "Перенос одобрен" : "Перенос отклонён");
     }
@@ -684,6 +889,7 @@ document.addEventListener("click", async e => {
 });
 
 /* ---------- start ---------- */
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 (async () => {
   if (DEMO) $("#banner").classList.remove("hidden");
   try { B = DEMO ? demoBackend() : await firebaseBackend(); }
