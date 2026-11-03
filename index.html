@@ -183,6 +183,9 @@ async function firebaseBackend() {
     watchKpi(cb) { return fs.onSnapshot(fs.collection(db, "kpi"), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })))); },
     async saveKpi(id, data) { await fs.setDoc(fs.doc(db, "kpi", id), { ...data, updatedAt: Date.now() }, { merge: true }); },
     async removeKpi(id) { await fs.deleteDoc(fs.doc(db, "kpi", id)); },
+    watchPoints(cb) { return fs.onSnapshot(fs.collection(db, "points"), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })))); },
+    async addPoints(p) { await fs.addDoc(fs.collection(db, "points"), { ...p, by: current.uid, at: Date.now() }); },
+    async removePoints(id) { await fs.deleteDoc(fs.doc(db, "points", id)); },
   };
 }
 
@@ -190,7 +193,7 @@ async function firebaseBackend() {
 function demoBackend() {
   const L = new Set(); const emit = () => L.forEach(f => f());
   const users = TEAM_SEED.map((p, i) => ({ uid: "u" + i, login: p.login, name: p.name, role: p.login === ADMIN_LOGIN ? "admin" : "member" }));
-  const tasks = []; const reports = {}; const kpi = [];
+  const tasks = []; const reports = {}; const kpi = []; const pts = [];
   let current = null; let authCb = null; let n = 1;
   const api = {
     onAuth(cb) { authCb = cb; cb(null); },
@@ -210,6 +213,9 @@ function demoBackend() {
     watchKpi(cb) { const f = () => cb(kpi.map(k => ({ ...k }))); L.add(f); f(); return () => L.delete(f); },
     async saveKpi(id, data) { const k = kpi.find(x => x.id === id); if (k) Object.assign(k, data); else kpi.push({ id, ...data }); emit(); },
     async removeKpi(id) { kpi.splice(kpi.findIndex(k => k.id === id), 1); emit(); },
+    watchPoints(cb) { const f = () => cb(pts.map(k => ({ ...k }))); L.add(f); f(); return () => L.delete(f); },
+    async addPoints(p) { pts.push({ id: "p" + n++, ...p, by: current.uid, at: Date.now() }); emit(); },
+    async removePoints(id) { pts.splice(pts.findIndex(k => k.id === id), 1); emit(); },
   };
   return api;
 }
@@ -246,7 +252,7 @@ const KPI_FIELDS = [
 ];
 
 /* ===================== APP ===================== */
-let B, ME = null, USERS = [], TASKS = [], KPI = [];
+let B, ME = null, USERS = [], TASKS = [], KPI = [], POINTS = [];
 let VIEW = "mine", FILTER = "open", unsub = [];
 
 const userName = uid => USERS.find(u => u.uid === uid)?.name || "—";
@@ -254,7 +260,55 @@ const uidByLogin = l => USERS.find(u => u.login === l)?.uid;
 const initials = name => (name || "?").trim()[0]?.toUpperCase() || "?";
 
 function isOverdue(t) { return t.status !== "done" && t.deadline && t.deadline < todayStr(); }
-function canEdit(t) { return ME.isAdmin || (t.assignees || []).includes(ME.uid); }
+function canEdit(t) { return ME.isAdmin || (t.assignees || []).includes(ME.uid) || t.createdBy === ME.uid; }
+/* кто может менять и удалять задачу: админ или тот, кто её поставил */
+function canManage(t) { return ME.isAdmin || t.createdBy === ME.uid; }
+/* кто решает по переносу срока: админ или постановщик (если он сам не исполнитель) */
+function canDecide(t) { return ME.isAdmin || (t.createdBy === ME.uid && !(t.assignees || []).includes(ME.uid)); }
+
+/* ===================== БАЛЛЫ =====================
+   +10 — задача сделана в срок
+   +5  — сделана с опозданием или задача без срока
+   −5  — за каждый день просрочки (не больше −30 за одну задачу)
+   Если до или во время просрочки попросить перенос — пока ждёт решения, минусы не идут.
+   Одобрили — новый срок (дни, что уже были просрочены до запроса, остаются).
+   Отклонили — минусы считаются от старого срока.
+   Задачи, которые человек поставил сам себе, баллов не дают (кроме админа). */
+const PTS = { onTime: 10, late: 5, noDeadline: 5, perDay: 5, maxDays: 6 };
+const dayDiff = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+const isoOf = ms => { const d = new Date(ms); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const isAdminUid = uid => USERS.find(u => u.uid === uid)?.role === "admin";
+function countsForPoints(t, uid) { return !!t.createdBy && (t.createdBy !== uid || isAdminUid(t.createdBy)); }
+function overDays(t) {
+  if (!t.deadline) return 0;
+  let end = t.status === "done" ? (t.doneAt || todayStr()) : todayStr();
+  const e = t.extension;
+  if (e && e.status === "pending") { const r = isoOf(e.at); if (r < end) end = r; }
+  return Math.max(0, dayDiff(t.deadline, end));
+}
+function taskDelta(t, uid) {
+  if (!countsForPoints(t, uid)) return 0;
+  const days = Math.min(PTS.maxDays, (t.carryDays || 0) + overDays(t));
+  let base = 0;
+  if (t.status === "done") base = !t.deadline ? PTS.noDeadline : days === 0 ? PTS.onTime : PTS.late;
+  return base - days * PTS.perDay;
+}
+function scoreOf(uid) {
+  const fromTasks = TASKS.filter(t => (t.assignees || []).includes(uid)).reduce((s, t) => s + taskDelta(t, uid), 0);
+  const manual = POINTS.filter(p => p.uid === uid).reduce((s, p) => s + (+p.delta || 0), 0);
+  return fromTasks + manual;
+}
+const signed = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v);
+function pointsChip(t) {
+  const who = (t.assignees || []).includes(ME.uid) ? ME.uid : (t.assignees || [])[0];
+  if (!who || !countsForPoints(t, who)) return "";
+  const v = taskDelta(t, who); if (!v) return "";
+  return `<span class="chip ${v < 0 ? "over" : "st-done"}">${signed(v)} балл.</span>`;
+}
+function extChip(t) {
+  const e = t.extension; if (!e || e.status !== "pending" || t.status === "done") return "";
+  return `<span class="chip today">просит перенос на ${fmtDate(e.newDeadline)}</span>`;
+}
 
 function deadlineChip(t) {
   if (!t.deadline) return `<span class="chip">без срока</span>`;
@@ -268,7 +322,7 @@ function taskCard(t, showWho = true) {
   const who = (t.assignees || []).map(userName).join(", ");
   return `<div class="card task ${t.status === "done" ? "done" : ""}" data-task="${t.id}">
     <div class="top"><div class="title">${esc(t.title)}</div></div>
-    <div class="chips">${statusChip(t)}${deadlineChip(t)}${showWho ? `<span class="chip">${esc(who)}</span>` : ""}${t.lastReport ? `<span class="chip">отчёт ${fmtTime(t.lastReport)}</span>` : ""}</div>
+    <div class="chips">${statusChip(t)}${deadlineChip(t)}${extChip(t)}${pointsChip(t)}${showWho ? `<span class="chip">${esc(who)}</span>` : ""}${t.lastReport ? `<span class="chip">отчёт ${fmtTime(t.lastReport)}</span>` : ""}</div>
   </div>`;
 }
 
@@ -280,30 +334,37 @@ function applyFilter(list) {
   if (FILTER === "open") return list.filter(t => t.status !== "done");
   if (FILTER === "over") return list.filter(isOverdue);
   if (FILTER === "done") return list.filter(t => t.status === "done");
+  if (FILTER === "byme") return list.filter(t => t.status !== "done");
   return list;
 }
-function filtersHtml() {
+function filtersHtml(withByMe) {
   const f = [["open", "Активные"], ["over", "Просроченные"], ["done", "Готово"], ["all", "Все"]];
+  if (withByMe) f.push(["byme", "Поставил(а) я"]);
   return `<div class="filters">${f.map(([k, l]) => `<button data-filter="${k}" class="${FILTER === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
 }
 
 /* ---------- views ---------- */
 function viewMine() {
   const mine = TASKS.filter(t => (t.assignees || []).includes(ME.uid));
-  const open = mine.filter(t => t.status !== "done").length, over = mine.filter(isOverdue).length, done = mine.filter(t => t.status === "done").length;
-  const list = sortTasks(applyFilter(mine));
-  return `<h2>Мои задачи</h2>
+  const open = mine.filter(t => t.status !== "done").length, over = mine.filter(isOverdue).length;
+  const score = scoreOf(ME.uid);
+  const byMe = TASKS.filter(t => t.createdBy === ME.uid && !(t.assignees || []).every(a => a === ME.uid));
+  const list = FILTER === "byme" ? sortTasks(applyFilter(byMe)) : sortTasks(applyFilter(mine));
+  const decide = TASKS.filter(t => t.status !== "done" && t.extension?.status === "pending" && canDecide(t));
+  return `<div class="row"><h2 class="grow">Мои задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
     <div class="stat"><div class="card"><b>${open}</b><span class="small muted">активные</span></div>
     <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
-    <div class="card"><b style="color:var(--ok)">${done}</b><span class="small muted">готово</span></div></div>
-    ${filtersHtml()}
-    ${list.map(t => taskCard(t, (t.assignees || []).length > 1)).join("") || `<div class="empty">Здесь пусто 👌</div>`}`;
+    <div class="card" data-view="rating" style="cursor:pointer"><b style="color:${score < 0 ? "var(--bad)" : "var(--ok)"}">${signed(score) || 0}</b><span class="small muted">мои баллы</span></div></div>
+    ${decide.length ? `<div class="person">Ждут вашего решения: перенос срока<span class="small muted">· ${decide.length}</span></div>${decide.map(t => taskCard(t)).join("")}<div class="person">Задачи</div>` : ""}
+    ${filtersHtml(true)}
+    ${list.map(t => taskCard(t, FILTER === "byme" || (t.assignees || []).length > 1)).join("") || `<div class="empty">Здесь пусто 👌</div>`}`;
 }
 
 function viewAll() {
+  if (FILTER === "byme") FILTER = "open";
   const people = USERS.slice().sort((a, b) => (a.role === "admin") - (b.role === "admin") || a.name.localeCompare(b.name));
   const total = TASKS.length, done = TASKS.filter(t => t.status === "done").length, over = TASKS.filter(isOverdue).length;
-  let html = `<div class="row"><h2 class="grow">Все задачи</h2>${ME.isAdmin ? `<button class="btn" data-act="new-task">+ Задача</button>` : ""}</div>
+  let html = `<div class="row"><h2 class="grow">Все задачи</h2><button class="btn" data-act="new-task">+ Задача</button></div>
     <div class="stat"><div class="card"><b>${total - done}</b><span class="small muted">в работе</span></div>
     <div class="card"><b style="color:${over ? "var(--bad)" : "var(--burg)"}">${over}</b><span class="small muted">просрочено</span></div>
     <div class="card"><b style="color:var(--ok)">${total ? Math.round(done / total * 100) : 0}%</b><span class="small muted">выполнено</span></div></div>
@@ -359,6 +420,35 @@ function viewKpi() {
     <div class="card tablewrap" style="margin-top:10px"><table>${head}${body || `<tr><td colspan="11" class="muted">Пока нет данных</td></tr>`}</table></div>`;
 }
 
+function viewRating() {
+  const rows = USERS.map(u => {
+    const mine = TASKS.filter(t => (t.assignees || []).includes(u.uid) && countsForPoints(t, u.uid));
+    const onTime = mine.filter(t => t.status === "done" && taskDelta(t, u.uid) === PTS.onTime).length;
+    const late = mine.filter(t => (t.carryDays || 0) + overDays(t) > 0).length;
+    const manual = POINTS.filter(p => p.uid === u.uid).reduce((s, p) => s + (+p.delta || 0), 0);
+    return { u, score: scoreOf(u.uid), onTime, late, manual };
+  }).sort((a, b) => b.score - a.score || a.u.name.localeCompare(b.u.name));
+  const log = POINTS.slice().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 20);
+  return `<h2>Рейтинг</h2>
+    ${rows.map((r, i) => `<div class="card row"><span class="avatar">${i + 1}</span><div class="grow"><b>${esc(r.u.name)}</b>
+      <div class="chips" style="margin-top:6px"><span class="chip st-done">в срок ${r.onTime}</span><span class="chip ${r.late ? "over" : ""}">с просрочкой ${r.late}</span>${r.manual ? `<span class="chip">вручную ${signed(r.manual)}</span>` : ""}</div></div>
+      <b style="font-size:22px;color:${r.score < 0 ? "var(--bad)" : "var(--burg)"}">${signed(r.score) || 0}</b>
+      ${ME.isAdmin ? `<button class="btn ghost small" data-adjpts="${r.u.uid}">±</button>` : ""}</div>`).join("") || `<div class="empty">Пока никого</div>`}
+    <div class="card small"><b>Как считаются баллы</b>
+      <div style="margin-top:6px;line-height:1.6">✅ Сделал(а) в срок: <b>+${PTS.onTime}</b><br>🕓 Сделал(а) с опозданием или задача без срока: <b>+${PTS.late}</b><br>⛔ Каждый день просрочки: <b>−${PTS.perDay}</b> (не больше −${PTS.perDay * PTS.maxDays} за задачу)<br>
+      🙋 Не успеваешь — открой задачу и нажми «Попросить перенос». Пока постановщик решает, минусы не идут. Одобрили — у задачи новый срок. Отклонили — минусы считаются от старого срока.<br>
+      Задачи, которые ставишь сам(а) себе, баллов не дают. Админ может добавить или снять баллы вручную с причиной.</div></div>
+    ${log.length ? `<div class="person">Баллы вручную</div>${log.map(p => `<div class="card small row"><div class="grow"><b>${esc(userName(p.uid))}</b> · ${signed(+p.delta)} · ${esc(p.reason || "")}<div class="muted">${esc(userName(p.by))} · ${fmtTime(p.at)}</div></div>${ME.isAdmin ? `<button class="btn ghost small" data-delpts="${p.id}">✕</button>` : ""}</div>`).join("")}` : ""}`;
+}
+
+function sheetPoints(uid) {
+  openSheet(`<div class="row"><h2 class="grow" style="margin:0">Баллы: ${esc(userName(uid))}</h2><button class="btn ghost" data-close>✕</button></div>
+    <label>Сколько (например 10 или -10)</label><input id="pt-delta" inputmode="numeric" placeholder="10">
+    <label>За что</label><input id="pt-reason" placeholder="Например: быстро закрыл срочный вопрос">
+    <div class="err" id="pt-err"></div>
+    <button class="btn" style="width:100%" data-savepts="${uid}">Сохранить</button>`);
+}
+
 function viewTeam() {
   const list = USERS.slice().sort((a, b) => (b.role === "admin") - (a.role === "admin") || a.name.localeCompare(b.name));
   return `<div class="row"><h2 class="grow">Команда</h2>${ME.isAdmin ? `<button class="btn" data-act="new-user">+ Участник</button>` : ""}</div>
@@ -381,14 +471,33 @@ function sheetTask(id) {
   const t = TASKS.find(x => x.id === id); if (!t) return;
   const who = (t.assignees || []).map(userName).join(", ");
   const editable = canEdit(t);
+  const isAssignee = (t.assignees || []).includes(ME.uid);
+  const e = t.extension;
+  let extHtml = "";
+  if (e && e.status === "pending" && t.status !== "done") {
+    extHtml = `<div class="card" style="background:#fdf0dd;border-color:#f0d9b5;margin-top:10px"><b>${esc(userName(e.by))} просит перенести срок на ${fmtDate(e.newDeadline)}</b>
+      <div class="small" style="margin-top:4px;white-space:pre-wrap">${esc(e.reason || "")}</div><div class="small muted">${fmtTime(e.at)} · пока решение не принято, минусы не идут</div>
+      ${canDecide(t) ? `<div class="row" style="margin-top:10px"><button class="btn" data-approve="${t.id}">Одобрить</button><button class="btn danger" data-reject="${t.id}">Отклонить</button></div>` : ""}</div>`;
+  } else if (e && e.status !== "pending") {
+    extHtml = `<div class="small muted" style="margin-top:8px">Перенос на ${fmtDate(e.newDeadline)} ${e.status === "approved" ? "одобрен" : "отклонён"} (${esc(userName(e.decidedBy))}, ${fmtTime(e.decidedAt)})${t.origDeadline ? ` · первый срок был ${fmtDate(t.origDeadline)}` : ""}</div>`;
+  }
+  if (isAssignee && t.status !== "done" && t.deadline && !(e && e.status === "pending")) {
+    extHtml += `<div style="margin-top:10px"><button class="btn sec" data-askext="${t.id}">Попросить перенос срока</button></div>
+      <div id="ext-form" class="hidden"><label>Новый срок</label><input id="ext-date" type="date" min="${todayStr()}">
+      <label>Почему не успеваю</label><textarea id="ext-reason" placeholder="Коротко причина"></textarea><div class="err" id="ext-err"></div>
+      <button class="btn" data-sendext="${t.id}">Отправить запрос</button></div>`;
+  }
+  const myDelta = isAssignee && countsForPoints(t, ME.uid) ? taskDelta(t, ME.uid) : null;
   openSheet(`<div class="row"><h2 class="grow" style="margin:0">${esc(t.title)}</h2><button class="btn ghost" data-close>✕</button></div>
-    <div class="chips" style="margin:8px 0">${statusChip(t)}${deadlineChip(t)}<span class="chip">${esc(who)}</span></div>
+    <div class="chips" style="margin:8px 0">${statusChip(t)}${deadlineChip(t)}${extChip(t)}<span class="chip">${esc(who)}</span></div>
+    <div class="small muted">Поставил(а): ${esc(userName(t.createdBy))}${myDelta != null ? ` · мои баллы по задаче: <b>${signed(myDelta) || 0}</b>` : ""}</div>
     ${t.desc ? `<div style="white-space:pre-wrap;margin:8px 0">${esc(t.desc)}</div>` : ""}
+    ${extHtml}
     ${editable ? `<label>Статус</label><div class="row">${Object.entries(STATUS).map(([k, l]) => `<button class="btn ${t.status === k || (!t.status && k === "todo") ? "" : "sec"}" data-status="${k}" data-id="${t.id}">${l}</button>`).join("")}</div>` : ""}
     <label style="margin-top:16px">Отчёты</label><div id="reports" class="small muted">Загрузка…</div>
     <label>Новый отчёт</label><textarea id="rtext" placeholder="Что сделано, что мешает, что дальше"></textarea>
     <div style="margin-top:8px"><button class="btn" data-addreport="${t.id}">Отправить отчёт</button></div>
-    ${ME.isAdmin ? `<div class="row" style="margin-top:18px"><button class="btn sec" data-edittask="${t.id}">Изменить</button><button class="btn danger" data-deltask="${t.id}">Удалить</button></div>` : ""}`);
+    ${canManage(t) ? `<div class="row" style="margin-top:18px"><button class="btn sec" data-edittask="${t.id}">Изменить</button><button class="btn danger" data-deltask="${t.id}">Удалить</button></div>` : ""}`);
   reportUnsub = B.watchReports(id, list => {
     const el = $("#reports"); if (!el) return;
     el.classList.remove("muted");
@@ -468,7 +577,7 @@ function renderLogin(msg = "") {
 
 function renderShell() {
   const me = USERS.find(u => u.uid === ME.uid);
-  const tabs = [["mine", "Мои задачи"], ["all", "Все задачи"], ["kpi", "KPI"], ["team", "Команда"]];
+  const tabs = [["mine", "Мои задачи"], ["all", "Все задачи"], ["rating", "Рейтинг"], ["kpi", "KPI"], ["team", "Команда"]];
   $("#app").innerHTML = `<header><div class="logo">Feel it</div><div class="who">${esc(me?.name || ME.login)}${ME.isAdmin ? " · админ" : ""}</div><button id="logout">Выйти</button></header>
     <nav>${tabs.map(([k, l]) => `<button data-view="${k}" class="${VIEW === k ? "on" : ""}">${l}</button>`).join("")}</nav>
     <main id="main"></main>`;
@@ -478,13 +587,13 @@ function renderShell() {
 function renderMain() {
   const m = $("#main"); if (!m) return;
   if (!USERS.some(u => u.uid === ME.uid) && !ME.isAdmin) { m.innerHTML = `<div class="empty">Ваш вход ещё не добавлен в команду. Напишите Сурену.</div>`; return; }
-  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "all" ? viewAll() : VIEW === "kpi" ? viewKpi() : viewTeam();
+  m.innerHTML = VIEW === "mine" ? viewMine() : VIEW === "all" ? viewAll() : VIEW === "rating" ? viewRating() : VIEW === "kpi" ? viewKpi() : viewTeam();
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === VIEW));
 }
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e => {
-  const el = e.target.closest("[data-view],[data-filter],[data-task],[data-act],[data-close],[data-status],[data-addreport],[data-edittask],[data-deltask],[data-savetask],[data-kpi],[data-savekpi],[data-delkpi],[data-saveuser],[data-rmuser],[data-savepass]");
+  const el = e.target.closest("[data-view],[data-filter],[data-task],[data-act],[data-close],[data-status],[data-addreport],[data-edittask],[data-deltask],[data-savetask],[data-kpi],[data-savekpi],[data-delkpi],[data-saveuser],[data-rmuser],[data-savepass],[data-askext],[data-sendext],[data-approve],[data-reject],[data-adjpts],[data-savepts],[data-delpts]");
   if (!el) { if (e.target.id === "sheet") closeSheet(); return; }
   const d = el.dataset;
   try {
@@ -522,6 +631,32 @@ document.addEventListener("click", async e => {
       if (d.savetask) await B.updateTask(d.savetask, data); else await B.addTask({ ...data, status: "todo", createdBy: ME.uid });
       closeSheet(); toast(d.savetask ? "Сохранено" : "Задача создана");
     }
+    else if (d.askext) { $("#ext-form").classList.remove("hidden"); el.classList.add("hidden"); }
+    else if (d.sendext) {
+      const t = TASKS.find(x => x.id === d.sendext); const nd = $("#ext-date").value, reason = $("#ext-reason").value.trim();
+      if (!nd || nd <= t.deadline) { $("#ext-err").textContent = "Выберите дату позже текущего срока"; return; }
+      if (!reason) { $("#ext-err").textContent = "Напишите причину"; return; }
+      el.disabled = true;
+      await B.updateTask(t.id, { extension: { by: ME.uid, newDeadline: nd, reason, at: Date.now(), status: "pending" } });
+      await B.addReport(t.id, `🙋 Прошу перенести срок с ${fmtDate(t.deadline)} на ${fmtDate(nd)}. Причина: ${reason}`);
+      closeSheet(); toast("Запрос отправлен");
+    }
+    else if (d.approve || d.reject) {
+      const t = TASKS.find(x => x.id === (d.approve || d.reject)); const e2 = t.extension; const ok = !!d.approve;
+      const patch = { extension: { ...e2, status: ok ? "approved" : "rejected", decidedBy: ME.uid, decidedAt: Date.now() } };
+      if (ok) { patch.origDeadline = t.origDeadline || t.deadline; patch.carryDays = (t.carryDays || 0) + Math.max(0, dayDiff(t.deadline, isoOf(e2.at))); patch.deadline = e2.newDeadline; }
+      await B.updateTask(t.id, patch);
+      await B.addReport(t.id, ok ? `✅ Перенос одобрен: новый срок ${fmtDate(e2.newDeadline)}` : `❌ Перенос отклонён, срок остаётся ${fmtDate(t.deadline)}`);
+      closeSheet(); toast(ok ? "Перенос одобрен" : "Перенос отклонён");
+    }
+    else if (d.adjpts) sheetPoints(d.adjpts);
+    else if (d.savepts) {
+      const v = parseInt($("#pt-delta").value.replace("−", "-"), 10), reason = $("#pt-reason").value.trim();
+      if (!v) { $("#pt-err").textContent = "Введите число, например 10 или -10"; return; }
+      if (!reason) { $("#pt-err").textContent = "Напишите, за что"; return; }
+      await B.addPoints({ uid: d.savepts, delta: v, reason }); closeSheet(); toast("Баллы сохранены");
+    }
+    else if (d.delpts) { if (confirm("Удалить эту запись?")) await B.removePoints(d.delpts); }
     else if (d.kpi) sheetKpi(d.kpi);
     else if ("savekpi" in d) {
       const data = {}; KPI_FIELDS.forEach(f => data[f.key] = num($("#k-" + f.key).value)); data.note = $("#k-note").value.trim();
@@ -561,6 +696,7 @@ document.addEventListener("click", async e => {
     unsub.push(B.watchUsers(u => { USERS = u; renderMain(); const me = USERS.find(x => x.uid === ME.uid); const w = $(".who"); if (w && me) w.textContent = me.name + (ME.isAdmin ? " · админ" : ""); }));
     unsub.push(B.watchTasks(t => { TASKS = t; renderMain(); }));
     unsub.push(B.watchKpi(k => { KPI = k; renderMain(); }));
+    unsub.push(B.watchPoints(p => { POINTS = p; renderMain(); }));
   });
 })();
 </script>
