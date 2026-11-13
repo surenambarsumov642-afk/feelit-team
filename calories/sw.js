@@ -1,5 +1,5 @@
 // Офлайн-кэш оболочки приложения. Запросы к API Claude не кэшируются.
-const CACHE = "arise-v2";
+const CACHE = "arise-v3";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js",
   "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
