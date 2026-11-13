@@ -32,9 +32,9 @@ jobs:
       - uses: supabase/setup-cli@v1
         with: { version: latest }
       - name: Сохранить ключ Gemini на сервере
-        run: supabase secrets set --project-ref "$REF" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
+        run: supabase secrets set --yes --project-ref "$REF" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
       - name: Развернуть функцию
-        run: supabase functions deploy arise --project-ref "$REF" --no-verify-jwt
+        run: supabase functions deploy arise --yes --project-ref "$REF" --no-verify-jwt
       - name: Проверка
         run: |
           curl -sS -X POST "https://$REF.supabase.co/functions/v1/arise" -H "Content-Type: application/json" -d '{"action":"leaderboard"}'
