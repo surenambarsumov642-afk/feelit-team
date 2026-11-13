@@ -1,0 +1,4 @@
+project_id = "arise"
+
+[functions.arise]
+verify_jwt = false

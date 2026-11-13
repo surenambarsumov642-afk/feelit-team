@@ -1,0 +1,41 @@
+# Разворачивает сервер ARISE в Supabase: таблица игроков + функция arise + ключ Gemini.
+# Секреты репозитория (Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN — supabase.com → Account → Access Tokens
+#   SUPABASE_PROJECT_REF  — id проекта (из адреса https://<id>.supabase.co)
+#   GEMINI_API_KEY        — aistudio.google.com → Get API key
+name: Развернуть сервер ARISE
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["supabase/**", ".github/workflows/deploy-backend.yml"]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить секреты
+        run: |
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "Нет секрета SUPABASE_ACCESS_TOKEN"; exit 1; }
+          [ -n "$REF" ] || { echo "Нет секрета SUPABASE_PROJECT_REF"; exit 1; }
+          [ -n "${{ secrets.GEMINI_API_KEY }}" ] || { echo "Нет секрета GEMINI_API_KEY"; exit 1; }
+      - name: Создать таблицу
+        run: |
+          code=$(curl -sS -o resp.txt -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -Rs '{query: .}' supabase/schema.sql)")
+          cat resp.txt; echo
+          [ "$code" -lt 300 ] || { echo "Ошибка SQL ($code)"; exit 1; }
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - name: Сохранить ключ Gemini на сервере
+        run: supabase secrets set --project-ref "$REF" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
+      - name: Развернуть функцию
+        run: supabase functions deploy arise --project-ref "$REF" --no-verify-jwt
+      - name: Проверка
+        run: |
+          curl -sS -X POST "https://$REF.supabase.co/functions/v1/arise" -H "Content-Type: application/json" -d '{"action":"leaderboard"}'
+          echo; echo "Адрес сервера: https://$REF.supabase.co/functions/v1/arise"
