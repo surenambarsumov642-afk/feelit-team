@@ -15,8 +15,10 @@ const srv = Deno.serve({ port: 8787, onListen() {} }, async (req) => {
   got = { headers: Object.fromEntries(req.headers), size: body.length };
   return new Response(null, { status: 201 });
 });
-const res = await webpush.sendNotification({ endpoint: "http://localhost:8787/push/abc", keys: { p256dh, auth } },
+const d = webpush.generateRequestDetails({ endpoint: "http://localhost:8787/push/abc", keys: { p256dh, auth } },
   JSON.stringify({ title: "[СИСТЕМА]", body: "тест" }), { TTL: 60 });
+const r = await fetch(d.endpoint, { method: d.method, headers: d.headers as Record<string, string>, body: d.body as unknown as BodyInit });
+const res = { statusCode: r.status };
 console.log("status:", res.statusCode);
 console.log("encoding:", got?.headers["content-encoding"], "| auth:", (got?.headers["authorization"] || "").slice(0, 12), "| bytes:", got?.size, "| ttl:", got?.headers["ttl"]);
 await srv.shutdown();

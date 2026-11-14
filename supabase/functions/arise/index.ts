@@ -107,14 +107,16 @@ async function pushTo(playerId: string, title: string, body: string, tag = "aris
   let sent = 0;
   for (const s of subs) {
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+      // библиотека только шифрует (aes128gcm + VAPID), отправка — стандартным fetch
+      const d = webpush.generateRequestDetails({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         JSON.stringify({ title, body, tag, url: APP_URL }), { TTL: 6 * 3600 });
-      sent++;
-    } catch (e) {
-      const code = (e as { statusCode?: number }).statusCode;
-      console.error("push", code, String((e as Error).message).slice(0, 120));
-      if (code === 404 || code === 410) await db.from("push_subs").delete().eq("endpoint", s.endpoint);
-    }
+      const r = await fetch(d.endpoint, { method: d.method, headers: d.headers as Record<string, string>, body: d.body as unknown as BodyInit });
+      if (r.ok) sent++;
+      else {
+        console.error("push", r.status, (await r.text()).slice(0, 120));
+        if (r.status === 404 || r.status === 410) await db.from("push_subs").delete().eq("endpoint", s.endpoint);
+      }
+    } catch (e) { console.error("push", String((e as Error).message).slice(0, 120)); }
   }
   return sent;
 }
