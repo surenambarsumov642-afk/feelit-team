@@ -27,3 +27,7 @@ alter table public.players enable row level security;
 -- этап 1: лимит текстовых расчётов КБЖУ
 alter table public.players add column if not exists text_day date;
 alter table public.players add column if not exists text_count int not null default 0;
+
+-- этап 2: лимит запросов к наставнику навыков
+alter table public.players add column if not exists skill_day date;
+alter table public.players add column if not exists skill_count int not null default 0;
