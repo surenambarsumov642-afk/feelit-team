@@ -27,3 +27,17 @@ jobs:
         run: deno run -A supabase/tests/push_test.ts
       - name: Запросы к ИИ
         run: deno run -A supabase/tests/ai_test.ts food.jpg
+      - name: Фото этикетки
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.parse
+          from PIL import Image
+          UA = {"User-Agent": "ARISE-ci/1.0 (github actions)"}
+          q = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode({"action": "query", "titles": "File:FDA Nutrition Facts Label 2014.jpg", "prop": "imageinfo", "iiprop": "url", "format": "json"})
+          d = json.load(urllib.request.urlopen(urllib.request.Request(q, headers=UA)))
+          url = list(d["query"]["pages"].values())[0]["imageinfo"][0]["url"]
+          open("label_orig", "wb").write(urllib.request.urlopen(urllib.request.Request(url, headers=UA)).read())
+          im = Image.open("label_orig").convert("RGB"); im.thumbnail((1400, 1400)); im.save("label.jpg", quality=85); print(url, im.size)
+          PY
+      - name: Штрихкоды (Open Food Facts + этикетка)
+        run: deno run -A supabase/tests/barcode_test.ts label.jpg
