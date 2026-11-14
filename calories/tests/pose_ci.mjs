@@ -13,9 +13,12 @@ const page = await b.newPage();
 await page.goto("http://localhost:8080/calories/tests/pose_ci.html");
 let found = 0, total = 0;
 for (const [kind, imgs] of Object.entries(sets)) for (const img of imgs) {
+  let r;
+  try {
+    const buf = Buffer.from(await (await fetch(img.url, { headers: UA })).arrayBuffer());
+    r = await page.evaluate(async ([b64, kind]) => window.analyze(b64, kind), [buf.toString("base64"), kind]);
+  } catch (e) { console.log(`${kind.padEnd(5)} | пропуск (${String(e.message).split("\n")[0].slice(0, 60)}) | ${img.title}`); continue; }
   total++;
-  const buf = Buffer.from(await (await fetch(img.url, { headers: UA })).arrayBuffer());
-  const r = await page.evaluate(async ([b64, kind]) => window.analyze(b64, kind), [buf.toString("base64"), kind]);
   if (r.found) found++;
   console.log(`${kind.padEnd(5)} | ${r.found ? "поза найдена" : "позы нет    "} | ${r.angle != null ? "угол " + r.angle + "°" : ""} ${r.hint ? "· " + r.hint : ""} | ${img.title}`);
 }
