@@ -97,7 +97,7 @@ function imageParts(image: string, hint: string) {
   ];
 }
 
-async function gemini(parts: unknown[], system = SYSTEM) {
+async function gemini(parts: unknown[], system = SYSTEM, schema: unknown = SCHEMA, temperature = 0.2) {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("На сервере не задан GEMINI_API_KEY");
   const models = [Deno.env.get("GEMINI_MODEL"), "gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
@@ -105,7 +105,7 @@ async function gemini(parts: unknown[], system = SYSTEM) {
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts }],
-    generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0.2 },
+    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature, maxOutputTokens: 16000 },
   };
   let lastErr = "";
   for (const model of models) {
@@ -116,17 +116,134 @@ async function gemini(parts: unknown[], system = SYSTEM) {
     });
     if (r.ok) {
       const d = await r.json();
-      const text = (d.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
+      const text = (d.candidates?.[0]?.content?.parts ?? []).filter((p: { thought?: boolean }) => !p.thought)
+        .map((p: { text?: string }) => p.text ?? "").join("");
       if (!text) { lastErr = "пустой ответ модели"; continue; }
-      return JSON.parse(text);
+      try { return JSON.parse(text); } catch { lastErr = "ответ модели не JSON"; continue; }
     }
     lastErr = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`;
     console.error("gemini", lastErr);
     // 404 — модели нет, 429 — исчерпан бесплатный лимит этой модели, 5xx — сбой: пробуем следующую
     if (![404, 429, 500, 503].includes(r.status)) break;
   }
-  if (lastErr.includes(" 429 ")) throw new Error("Бесплатный лимит Gemini на сегодня исчерпан. Используй ручной ввод.");
-  throw new Error("Сервис распознавания недоступен. Попробуй позже.");
+  if (lastErr.includes(" 429 ")) throw new Error("Бесплатный лимит ИИ на сегодня исчерпан. Попробуй позже.");
+  throw new Error("Сервис ИИ недоступен. Попробуй позже.");
+}
+
+/* ---------------- навыки ---------------- */
+const S_ = (type: string, extra: Record<string, unknown> = {}) => ({ type, ...extra });
+const OBJ = (properties: Record<string, unknown>, required = Object.keys(properties)) => ({ type: "OBJECT", properties, required });
+const ARR = (items: unknown) => ({ type: "ARRAY", items });
+const STR = S_("STRING"), NUM = S_("NUMBER"), BOOL = S_("BOOLEAN");
+
+const MENTOR = `Ты — «Система»: персональный наставник в приложении ARISE (стиль: охотники, ранги, квесты), но прежде всего —
+опытный практик и преподаватель в теме, которую осваивает человек. Твоя единственная цель — чтобы человек РЕАЛЬНО освоил навык
+за месяц и смог применять его в жизни, а не просто «прошёл курс».
+Принципы: конкретика вместо общих слов; практика каждый день; маленькие шаги с видимым результатом; обратная связь по делу;
+учитывай время, технику, бюджет и язык человека; не предлагай платное, если бюджет 0; не выдумывай ссылки — давай поисковые запросы.
+Пиши по-русски, коротко и ясно. Соблюдай тон, который выбрал человек (жёстко / строго с поддержкой / мягко).`;
+
+const RESOURCE = OBJ({ title: STR, kind: S_("STRING", { enum: ["video", "article", "practice", "tool"] }), query: STR });
+const DAY = OBJ({
+  day: NUM, title: STR, what: STR, resource: RESOURCE, deliverable: STR, why: STR, minutes: NUM, rest: BOOL,
+});
+
+const SKILL_KINDS: Record<string, { schema: unknown; prompt: (c: Record<string, unknown>) => string; temp?: number }> = {
+  clarify: {
+    schema: OBJ({ vague: BOOL, questions: ARR(STR), suggestion: STR }),
+    prompt: (c) => `Человек хочет освоить навык. Его ответы:
+${JSON.stringify(c)}
+Оцени, достаточно ли конкретна цель, чтобы построить план на 30 дней с финальным проектом, который можно показать.
+Если цель размыта (например «разбираться в ИИ») — vague=true и задай 1–3 коротких уточняющих вопроса (с примерами вариантов в скобках),
+которые сделают цель конкретной. Если цель ясна — vague=false, questions пустой.
+suggestion — переформулированная конкретная цель одной фразой (что человек сможет сделать через 30 дней).`,
+  },
+  diag: {
+    schema: OBJ({ questions: ARR(OBJ({ q: STR, hint: STR })) }),
+    prompt: (c) => `Составь практическую мини-проверку текущего уровня человека по навыку. Данные: ${JSON.stringify(c)}
+Нужно 3 задания, на каждое можно ответить текстом с телефона за 1–2 минуты. Не спрашивай «оцени себя» — проверяй реальные знания и умения:
+1) базовое понимание; 2) маленькое практическое задание (например, написать промпт/набросать решение/объяснить шаги); 3) вопрос посложнее.
+hint — подсказка, что можно ответить «не знаю», если не знает. Учитывай, что человек может быть полным новичком.`,
+  },
+  plan: {
+    temp: 0.5,
+    schema: OBJ({
+      skill_name: STR,
+      profile: OBJ({ level: STR, level_note: STR, strengths: ARR(STR), weak: ARR(STR), main_risk: STR, motivation: STR }),
+      final_project: OBJ({ title: STR, description: STR, criteria: ARR(STR) }),
+      weeks: ARR(OBJ({ n: NUM, theme: STR, goal: STR })),
+      days: ARR(DAY),
+    }),
+    prompt: (c) => `Построй персональный план освоения навыка на 30 дней. Все данные человека (интервью + ответы на проверку уровня):
+${JSON.stringify(c)}
+
+Требования:
+- Определи реальный уровень по ответам на проверку (а не по самооценке): profile.level — одно из «новичок», «начальный», «средний», «продвинутый»;
+  strengths/weak — конкретные темы; main_risk — главная причина, по которой человек может бросить (из интервью), и учти её в плане;
+  motivation — его «зачем» одной фразой (будет напоминаться в трудные дни).
+- final_project: результат, который можно показать через 30 дней, + 3–5 проверяемых критериев.
+- 4 недели (weeks) с темами, которые ведут к финальному проекту; неделя 1 — основа и быстрые победы.
+- Ровно 30 дней (days, day=1..30). Каждый день: одно конкретное действие (what — пошагово, 2–4 предложения);
+  resource — что изучить: название + тип + ТОЧНЫЙ поисковый запрос для YouTube/Google на языке, который выбрал человек (не ссылка!);
+  deliverable — что именно сдать как доказательство (текст, скриншот, фото, ссылка); why — как это приближает к цели;
+  minutes — укладывается в его время (будни/выходные).
+- Дни 7, 14, 21, 28 — дни «босса»: задание лёгкое (повторение недели), т.к. в этот день ещё экзамен.
+- День 30 — защита финального проекта (deliverable = сам проект).
+- Дни из списка rest_days: rest=true, лёгкое задание на 10 минут (повторение), без нового материала. Остальные rest=false.
+- Только бесплатные инструменты, если бюджет 0. Учитывай устройство (телефон/компьютер).
+- Задания должны усложняться, повторять важное (интервальное повторение) и постоянно работать на финальный проект.`,
+  },
+  regen_day: {
+    temp: 0.5,
+    schema: DAY,
+    prompt: (c) => `Перепиши задание одного дня плана по просьбе человека. Контекст навыка и плана: ${JSON.stringify(c)}
+Сохрани номер дня, место в логике недели и связь с финальным проектом. Учти комментарий человека.`,
+  },
+  review: {
+    schema: OBJ({ passed: BOOL, score: NUM, feedback: STR, improve: STR, recall: ARR(OBJ({ q: STR, a: STR })) }),
+    prompt: (c) => `Проверь работу, которую человек сдал по заданию дня. Контекст: ${JSON.stringify(c)}
+passed=true, если работа честно выполняет задание (не идеально, но по сути). Если отписка/не по теме — passed=false и объясни, что доделать.
+score 0–100. feedback — что получилось хорошо (конкретно, 1–2 предложения). improve — главное, что улучшить, и как (1–2 предложения).
+recall — 2 коротких вопроса с ответами по ключевой идее сегодняшнего дня, для повторения через несколько дней.`,
+  },
+  boss: {
+    temp: 0.4,
+    schema: OBJ({ title: STR, intro: STR, questions: ARR(STR), practical: STR }),
+    prompt: (c) => `Составь недельный экзамен-«босс» по навыку. Контекст (темы недели, выполненные задания, слабые места): ${JSON.stringify(c)}
+title — пафосное название босса в стиле подземелий (например «Страж Промптов»). intro — 1 фраза вызова.
+questions — 4 вопроса на понимание (не на память дословно), с упором на слабые места. practical — 1 практическое задание на 10–20 минут,
+результат которого можно сдать текстом/скриншотом. Сложность — по уровню человека, но чтобы пришлось подумать.`,
+  },
+  boss_grade: {
+    schema: OBJ({ score: NUM, passed: BOOL, feedback: STR, per: ARR(OBJ({ ok: BOOL, comment: STR })), weak: ARR(STR) }),
+    prompt: (c) => `Оцени ответы на недельный экзамен-«босс». Данные: ${JSON.stringify(c)}
+per — по каждому вопросу и практике (в том же порядке: сначала вопросы, потом практика) ok + короткий комментарий.
+score 0–100 (практика весит 40%). passed=true при score>=60. feedback — общий вывод 2–3 предложения. weak — темы, которые надо подтянуть.
+Будь честным: пустые и «не знаю» ответы — неверно.`,
+  },
+  final_grade: {
+    schema: OBJ({ score: NUM, passed: BOOL, feedback: STR, criteria: ARR(OBJ({ name: STR, ok: BOOL, comment: STR })), next: STR }),
+    prompt: (c) => `Оцени финальный проект месяца по критериям. Данные: ${JSON.stringify(c)}
+criteria — по каждому критерию плана ok + комментарий. score 0–100, passed при score>=60. feedback — честный итог.
+next — что развивать дальше (1–2 предложения), это пойдёт в план следующего уровня.`,
+  },
+  adapt: {
+    temp: 0.5,
+    schema: OBJ({ note: STR, days: ARR(DAY) }),
+    prompt: (c) => `Человек оценил, как идёт обучение. Перестрой следующие дни плана (те же номера дней, что в remaining) под его отзыв.
+Данные: ${JSON.stringify(c)}
+Если «тяжело» — меньше объём, проще шаги, больше быстрых побед, но не меняй цель. Если «легко» — сложнее и глубже.
+Если «норм» — только учти комментарий. Сохрани дни босса (7/14/21/28), день 30 и rest-дни. note — 1 фраза, что изменилось.`,
+  },
+};
+
+async function skillAI(kind: string, ctx: Record<string, unknown>, image?: string) {
+  const k = SKILL_KINDS[kind];
+  if (!k) throw new Error("unknown skill kind");
+  const parts: unknown[] = [];
+  if (image) parts.push({ inline_data: { mime_type: "image/jpeg", data: image } });
+  parts.push({ text: k.prompt(ctx) });
+  return await gemini(parts, MENTOR, k.schema, k.temp ?? 0.3);
 }
 
 /* ---------------- обработчик ---------------- */
@@ -202,6 +319,22 @@ Deno.serve(async (req) => {
         await db.from("players").update({ text_day: day, text_count: used + 1 }).eq("id", p.id);
         const res = await gemini([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM);
         return json(res);
+      }
+      case "skill": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const kind = String(b.kind ?? "");
+        if (!SKILL_KINDS[kind]) return fail("Неизвестный запрос");
+        const ctx = (b.ctx ?? {}) as Record<string, unknown>;
+        if (JSON.stringify(ctx).length > 60_000) return fail("Слишком большой запрос");
+        const image = b.image ? String(b.image) : undefined;
+        if (image && image.length > 4_000_000) return fail("Фото слишком большое");
+        const limit = int(Deno.env.get("SKILL_LIMIT") ?? 40, 1, 1000);
+        const day = todayUTC5();
+        const used = p.skill_day === day ? p.skill_count : 0;
+        if (used >= limit) return fail(`Лимит ${limit} запросов к наставнику в день исчерпан. Продолжим завтра.`, 429);
+        await db.from("players").update({ skill_day: day, skill_count: used + 1 }).eq("id", p.id);
+        return json(await skillAI(kind, ctx, image));
       }
       case "rename": {
         const p = await playerByToken(b.token);

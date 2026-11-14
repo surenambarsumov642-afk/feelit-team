@@ -1,6 +1,7 @@
 // ARISE — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank } from "./skills.js";
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -56,7 +57,7 @@ const ACTIVITY = [
 function defaultState() {
   return {
     v: 1, profile: null, player: null,
-    entries: [], weights: [], workouts: {}, title: null,
+    entries: [], weights: [], workouts: {}, skills: [], title: null,
     seen: { level: 1, ach: [], quests: {}, penalties: [] },
   };
 }
@@ -98,7 +99,7 @@ async function syncNow() {
     await api("sync", {
       token: S.player.token,
       stats: { level: P.level, rank: P.rank, xp: P.xp, streak: P.streak, best_streak: P.longest, perfect_days: P.perfectDays,
-        workouts: P.workoutDays, title: t ? t.n : null, today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
+        workouts: P.workoutDays, title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
       save: backup,
     });
   } catch (e) { /* офлайн — попробуем позже */ }
@@ -164,8 +165,7 @@ function workoutDone(d, lvl) { const w = wDay(d); return EX.every(ex => (w[ex.id
 const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
 const QUESTS = [
   { id: "workout", name: "Тренировка Системы", xp: XP.workout },
-  { id: "log", name: "Записать 3 приёма пищи", xp: XP.log },
-  { id: "protein", name: "Добрать норму белка", xp: XP.protein },
+  { id: "log", name: "Вести учёт питания", xp: XP.log },
   { id: "norm", name: "Уложиться в норму калорий", xp: XP.norm },
 ];
 const xpNeed = lvl => 100 + 25 * (lvl - 1);
@@ -191,7 +191,7 @@ function evalQuests(s, t, d, lvl) {
   const w = wDay(d), parts = EX.filter(ex => (w[ex.id] || 0) >= exTarget(ex, lvl)).length;
   return {
     workout: { done: workoutDone(d, lvl), prog: `${parts}/${EX.length} упражнений` },
-    log: { done: s.meals >= 3, prog: `${Math.min(s.meals, 3)}/3 приёма` },
+    log: { done: s.count >= 1, prog: s.count ? `записей: ${s.count}` : "запиши всё, что ешь сегодня" },
     protein: { done: s.p >= t.p * 0.9, prog: `${r0(s.p)}/${r0(t.p * 0.9)} г` },
     norm: { done: s.kcal >= lo && s.kcal <= hi, over: s.kcal > hi, prog: `${lo}–${hi} ккал` },
   };
@@ -204,6 +204,7 @@ function computeProgress() {
   for (const e of S.entries) (byDate[e.date] ||= []).push(e);
   let xp = 0, cur = 0, longest = 0, proteinDays = 0, normDays = 0, perfectDays = 0, photos = 0, entries = S.entries.length, workoutDays = 0;
   let lvl = 1, lvlRest = 0;
+  const skXP = skillXpByDate();
   const days = {};
   const first = [start, ...Object.keys(byDate), ...Object.keys(S.workouts)].sort()[0];
   for (let d = first; d <= td; d = addDays(d, 1)) {
@@ -212,7 +213,7 @@ function computeProgress() {
     const dayLvl = lvl;
     const q = evalQuests(s, t, d, dayLvl);
     const closed = d < td;
-    let dx = XP.entry * Math.min(s.count, XP.entryCap);
+    let dx = XP.entry * Math.min(s.count, XP.entryCap) + (skXP[d] || 0);
     const doneIds = QUESTS.filter(x => q[x.id].done).map(x => x.id);
     for (const id of doneIds) dx += QUESTS.find(x => x.id === id).xp;
     const all = doneIds.length === QUESTS.length;
@@ -228,7 +229,7 @@ function computeProgress() {
     if (penalty) dx += penalty.xp;
     xp = Math.max(0, xp + dx);
     lvl = 1; lvlRest = xp; while (lvlRest >= xpNeed(lvl)) { lvlRest -= xpNeed(lvl); lvl++; }
-    const active = s.count > 0 || q.workout.done;
+    const active = s.count > 0 || q.workout.done || (skXP[d] || 0) > 0;
     if (active) { cur++; longest = Math.max(longest, cur); } else if (closed) cur = 0;
     days[d] = { s, q, xp: dx, penalty, all, lvl: dayLvl, doneCount: doneIds.length };
   }
@@ -349,6 +350,7 @@ let diaryDate = today();
 const ICONS = {
   status: '<svg viewBox="0 0 24 24"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>',
   diary: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  skills: '<svg viewBox="0 0 24 24"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2 8 12.7 4 8.8 9.5 8z"/><path d="M12 21v-3"/></svg>',
   hunter: '<svg viewBox="0 0 24 24"><path d="M14.5 3.5l6 6L9 21l-6-6z"/><path d="M3 21l3-3M13 5l6 6"/></svg>',
   settings: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
@@ -358,10 +360,10 @@ function renderTabbar() {
   let bar = document.querySelector(".tabbar");
   if (!S.profile) { bar && bar.remove(); return; }
   if (!bar) { bar = document.createElement("nav"); bar.className = "tabbar"; document.body.appendChild(bar); }
-  const b = (id, label) => `<button class="tab ${tab === id || (id === "hunter" && tab === "settings") ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
+  const b = (id, label) => `<button class="tab ${tab === id || (id === "status" && (tab === "hunter" || tab === "settings")) ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
   bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}
     <button class="tab-add" data-act="add" aria-label="Добавить">${ICONS.plus}</button>
-    ${b("rating", "Рейтинг")}${b("hunter", "Охотник")}</div>`;
+    ${b("skills", "Навыки")}${b("rating", "Рейтинг")}</div>`;
   bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { tab = x.dataset.tab; render(); window.scrollTo(0, 0); });
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
 }
@@ -373,6 +375,7 @@ function render() {
   else if (tab === "diary") renderDiary(P);
   else if (tab === "hunter") renderHunter(P);
   else if (tab === "rating") renderRating(P);
+  else if (tab === "skills") renderSkills($app);
   else renderSettings();
   renderTabbar();
   checkEvents(P);
@@ -381,12 +384,12 @@ function render() {
 /* ============================ общие куски ============================ */
 function hunterCard(P, full) {
   const t = S.title && ACH.find(a => a.id === S.title);
-  return `<div class="win">
+  return `<div class="win" ${full ? "" : 'data-hunter style="cursor:pointer"'}>${full ? "" : '<span class="hunter-more">профиль ›</span>'}
     <div class="hunter">
       <div class="rank-badge rank-${P.rank}"><span>${P.rank}</span></div>
       <div class="grow">
         <div class="name">${esc(S.profile.name)}</div>
-        <div class="title">${t ? "«" + esc(t.n) + "»" : esc(RANK_NAMES[P.rank])}</div>
+        <div class="title">${shameTitle() ? '<span class="bad">«Беглец»</span>' : t ? "«" + esc(t.n) + "»" : esc(RANK_NAMES[P.rank])}</div>
         <div class="row mt" style="margin-top:8px"><span class="lvl">LV. ${P.level}</span>
           <span class="tiny muted" style="margin-left:auto">${P.into} / ${P.need} XP</span></div>
         <div class="bar" style="margin-top:5px"><i style="width:${(P.into / P.need * 100).toFixed(1)}%"></i></div>
@@ -440,6 +443,7 @@ function renderStatus(P) {
   $app.innerHTML = `
     <div class="screen-title"><h1>Статус</h1><span class="sub">${humanDate(td)}</span></div>
     ${hunterCard(P)}
+    ${statusCard()}
     <div class="win">
       <div class="win-h">Энергия дня<span class="right">норма ${t.kcal} ккал</span></div>
       <div class="ring-wrap">${ring(s.kcal, t.kcal)}
@@ -466,6 +470,8 @@ function renderStatus(P) {
   $app.querySelector("[data-act=photo]").onclick = () => startPhoto(today());
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
+  $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelector("[data-hunter]").onclick = () => { tab = "hunter"; render(); window.scrollTo(0, 0); };
   bindQuests(P);
 }
 function planWin(t) {
@@ -545,6 +551,7 @@ function renderHunter(P) {
   $app.innerHTML = `
     <div class="screen-title"><h1>Охотник</h1><button class="icon-btn" style="margin-left:auto" id="to-settings" aria-label="Настройки">⚙</button></div>
     ${hunterCard(P, true)}
+    ${finishedSkills().length ? `<div class="win violet"><div class="win-h">Навыки</div>${finishedSkills().map(sk => `<div class="kv"><span>${esc(sk.plan.skill_name)} · Ур. ${sk.level}</span><b>${masteryRank(sk.mastery)} · ${sk.mastery}%</b></div>`).join("")}</div>` : ""}
     ${weightWin(t)}
     <div class="win"><div class="win-h">Характеристики</div>
       <div class="stats">${STATS.map(([k, n, d]) => `<div class="stat"><div class="s-h"><span class="s-n">${n}</span><span class="s-v">${P.stats[k]}</span></div><div class="s-d">+1 за ${d}</div></div>`).join("")}</div>
@@ -1116,6 +1123,18 @@ function openEdit(id) {
 }
 
 /* ---------- фото ---------- */
+function pickPhoto() {
+  return new Promise(res => {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = async () => {
+      const f = inp.files[0]; if (!f) return res(null);
+      try { const img = await loadImage(f); res(drawScaled(img, 1280, 0.82).split(",")[1]); } catch { toast("Не удалось открыть фото", true); res(null); }
+    };
+    inp.click();
+  });
+}
+initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL });
+
 const fileInput = document.createElement("input");
 fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
 document.body.appendChild(fileInput);

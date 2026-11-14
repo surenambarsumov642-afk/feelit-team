@@ -308,3 +308,19 @@ a{color:var(--blue2)}
 .wchart .w-dot{fill:#fff;stroke:var(--blue);stroke-width:1.5}
 .wchart .w-lbl{fill:var(--muted);font-size:9px;font-family:"Exo 2",sans-serif}
 .wchart .w-lbl.v{fill:var(--violet2)}
+
+/* ---------- навыки ---------- */
+.chips-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip-b{appearance:none;cursor:pointer;border:1px solid var(--line);background:rgba(5,10,22,.7);color:var(--muted);border-radius:16px;padding:7px 12px;font-size:13px}
+.chip-b.on{border-color:var(--violet);color:#fff;background:rgba(143,107,255,.22);box-shadow:var(--glow-v)}
+.sk-day{border:1px solid var(--line);border-radius:var(--radius);padding:10px;margin-bottom:8px;background:rgba(5,10,22,.5)}
+.sk-day.rest{opacity:.6}
+.sk-day a.btn{display:inline-block;text-decoration:none}
+.sk-n{width:26px;height:26px;flex:none;display:grid;place-items:center;border:1px solid var(--violet);border-radius:4px;font-family:"Russo One",sans-serif;font-size:12px;color:var(--violet2)}
+.sk-dot{display:inline-grid;place-items:center;width:28px;height:28px;margin:2px;border:1px solid var(--line);border-radius:4px;font-size:11px;color:var(--muted)}
+.sk-dot.ok{border-color:var(--ok);color:var(--ok);box-shadow:0 0 6px rgba(61,255,176,.35)}
+.sk-dot.bad{border-color:var(--bad);color:var(--bad)}
+.sk-dot.dim{opacity:.45}
+.sk-dot.cur{border-color:var(--violet);color:#fff;box-shadow:var(--glow-v)}
+.tag-sys{display:inline-block;font-family:"Russo One",sans-serif;font-size:12px;letter-spacing:.3em;color:var(--violet2);border:1px solid rgba(183,156,255,.7);padding:4px 12px}
+.hunter-more{position:absolute;right:12px;top:8px;font-size:11px;color:var(--muted)}
