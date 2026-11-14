@@ -81,20 +81,30 @@ const SCHEMA = {
   required: ["is_food", "summary", "notes", "items"],
 };
 
-async function gemini(image: string, hint: string) {
+const TEXT_SYSTEM = `You are a professional nutritionist inside a calorie-tracking app for users in Uzbekistan and the CIS.
+The user describes what they ate in Russian (free text, may include weight, cooking method, brand).
+Split it into distinct food items and estimate for each: portion weight in grams, calories, protein, fat, carbohydrates.
+- If a weight is given, use it exactly. If not, assume a typical single portion and mark confidence "medium".
+- Account for cooking method and added fat/sugar ("с маслом", "жареный", "с сахаром").
+- Know local dishes well (плов, лагман, самса, манты, шурпа, нарын, лепёшка, шашлык и т.д.) with typical Tashkent recipes.
+- Use standard nutrition references per 100 g, then scale. Calories must match macros (≈4P+9F+4C within ~10%).
+Names in Russian, short, lower-case. If the text is not food, set is_food=false and return an empty list.`;
+
+function imageParts(image: string, hint: string) {
+  return [
+    { inline_data: { mime_type: "image/jpeg", data: image } },
+    { text: hint ? `Уточнение от пользователя: ${hint}\n\nОпредели продукты на фото и оцени КБЖУ.` : "Определи продукты на фото и оцени КБЖУ." },
+  ];
+}
+
+async function gemini(parts: unknown[], system = SYSTEM) {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("На сервере не задан GEMINI_API_KEY");
   const models = [Deno.env.get("GEMINI_MODEL"), "gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
     .filter(Boolean) as string[];
   const body = {
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    contents: [{
-      role: "user",
-      parts: [
-        { inline_data: { mime_type: "image/jpeg", data: image } },
-        { text: hint ? `Уточнение от пользователя: ${hint}\n\nОпредели продукты на фото и оцени КБЖУ.` : "Определи продукты на фото и оцени КБЖУ." },
-      ],
-    }],
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts }],
     generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0.2 },
   };
   let lastErr = "";
@@ -177,8 +187,31 @@ Deno.serve(async (req) => {
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Используй ручной ввод.`, 429);
         await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
-        const res = await gemini(image, String(b.hint ?? "").slice(0, 300));
+        const res = await gemini(imageParts(image, String(b.hint ?? "").slice(0, 300)));
         return json({ ...res, photos_left: limit - used - 1 });
+      }
+      case "estimate": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const text = String(b.text ?? "").trim().slice(0, 300);
+        if (text.length < 2) return fail("Опиши, что ты съел");
+        const limit = int(Deno.env.get("TEXT_LIMIT") ?? 40, 1, 1000);
+        const day = todayUTC5();
+        const used = p.text_day === day ? p.text_count : 0;
+        if (used >= limit) return fail(`Лимит ${limit} расчётов в день исчерпан. Введи КБЖУ вручную.`, 429);
+        await db.from("players").update({ text_day: day, text_count: used + 1 }).eq("id", p.id);
+        const res = await gemini([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM);
+        return json(res);
+      }
+      case "rename": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const name = String(b.name ?? "").trim().replace(/\s+/g, " ").slice(0, 24);
+        if (name.length < 2) return fail("Имя слишком короткое");
+        if (name === p.name) return json({ name });
+        const { error } = await db.from("players").update({ name, updated_at: new Date().toISOString() }).eq("id", p.id);
+        if (error) return fail(error.code === "23505" ? "Это имя уже занято" : "Не удалось сменить имя");
+        return json({ name });
       }
       default:
         return fail("unknown action");

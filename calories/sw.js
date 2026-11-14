@@ -1,6 +1,6 @@
 // Офлайн-кэш оболочки приложения. Запросы к API Claude не кэшируются.
-const CACHE = "arise-v3";
-const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js",
+const CACHE = "arise-v4";
+const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "foods.js",
   "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
