@@ -681,3 +681,15 @@ function finishSkill(sk) {
   X.system({ kind: "levelup", tag: "НАВЫК ОСВОЕН", head: `${sk.plan.skill_name} · Ур. ${sk.level}`,
     body: `Освоение: ${st.mastery}% · ранг навыка ${masteryRank(st.mastery)}\nВыполнено дней: ${st.done}/${st.need}\n\nТы больше не тот, кем начинал.` });
 }
+
+/** Состояние задания навыка на сегодня (для напоминаний): none / todo / done / rest. */
+export function skillTodayState() {
+  const sk = (X.S().skills || []).find(s => s.status === "active");
+  if (!sk || !sk.plan || !sk.start) return "none";
+  const n = dayOf(sk, X.today());
+  if (n < 1) return "none";
+  if (n > 30) return sk.final && sk.final.grade ? "none" : "todo";
+  if (sk.tasks[n] && sk.tasks[n].done) return "done";
+  const pd = planDay(sk, n);
+  return pd && pd.rest ? "rest" : "todo";
+}

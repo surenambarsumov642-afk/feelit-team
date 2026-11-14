@@ -1,8 +1,10 @@
 // ARISE — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
-import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank } from "./skills.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
+import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
+import { phrase, sfx } from "./phrases.js";
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -100,7 +102,7 @@ async function syncNow() {
     await api("sync", {
       token: S.player.token,
       stats: { level: P.level, rank: P.rank, xp: P.xp, streak: P.streak, best_streak: P.longest, perfect_days: P.perfectDays,
-        workouts: P.workoutDays, title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
+        workouts: P.workoutDays, skill_state: skillTodayState(), title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
       save: backup,
       days: Object.entries(P.days).slice(-400).map(([day, x]) => ({ day, xp: x.xp, norm: !!x.q.norm.done, workout: !!x.q.workout.done, quests: x.doneCount })),
     });
@@ -167,9 +169,16 @@ const EX = [
   { id: "abs", n: "Скручивания", base: 20, step: 4, max: 100, unit: "", inc: 10 },
   { id: "run", n: "Бег / быстрая ходьба", base: 2, step: 0.4, max: 10, unit: " км", inc: 1 },
 ];
-const exTarget = (ex, lvl) => { const v = Math.min(ex.max, ex.base + (lvl - 1) * ex.step); return ex.id === "run" ? r1(v) : Math.round(v); };
+const exTarget = (ex, lvl, d) => {
+  let v = Math.min(ex.max, ex.base + (lvl - 1) * ex.step);
+  const m = d ? exMult(d) : 1;
+  if (m === "max") v = ex.max;
+  else if (m === 3) v = Math.min(ex.max * 2, v * 3);
+  else if (m !== 1) v = Math.min(ex.max, v * m);
+  return ex.id === "run" ? r1(v) : Math.round(v);
+};
 const wDay = d => S.workouts[d] || {};
-function workoutDone(d, lvl) { const w = wDay(d); return EX.every(ex => (w[ex.id] || 0) >= exTarget(ex, lvl)); }
+function workoutDone(d, lvl) { const w = wDay(d); return EX.every(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)); }
 
 /* ============================ прогресс «Системы» ============================ */
 const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
@@ -179,9 +188,7 @@ const QUESTS = [
   { id: "norm", name: "Уложиться в норму калорий", xp: XP.norm },
 ];
 const xpNeed = lvl => 100 + 25 * (lvl - 1);
-const RANKS = [["E", 1], ["D", 10], ["C", 20], ["B", 35], ["A", 50], ["S", 70]];
-const rankOf = lvl => RANKS.filter(r => lvl >= r[1]).pop()[0];
-const RANK_NAMES = { E: "Охотник ранга E", D: "Охотник ранга D", C: "Охотник ранга C", B: "Охотник ранга B", A: "Охотник ранга A", S: "Охотник ранга S" };
+const RANK_NAMES = RANK_TITLE;
 
 function daySums(date) {
   const s = { kcal: 0, p: 0, f: 0, c: 0, count: 0, photos: 0, meals: 0 };
@@ -198,7 +205,7 @@ function normRange(t) {
 }
 function evalQuests(s, t, d, lvl) {
   const [lo, hi] = normRange(t);
-  const w = wDay(d), parts = EX.filter(ex => (w[ex.id] || 0) >= exTarget(ex, lvl)).length;
+  const w = wDay(d), parts = EX.filter(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)).length;
   return {
     workout: { done: workoutDone(d, lvl), prog: `${parts}/${EX.length} упражнений` },
     log: { done: s.count >= 1, prog: s.count ? `записей: ${s.count}` : "запиши всё, что ешь сегодня" },
@@ -248,7 +255,7 @@ function computeProgress() {
   }
   let level = 1, rest = xp;
   while (rest >= xpNeed(level)) { rest -= xpNeed(level); level++; }
-  const rank = rankOf(level);
+  const rank = effectiveRank(level);
   const stats = {
     str: 10 + workoutDays,
     hp: 10 + proteinDays,
@@ -276,11 +283,12 @@ const ACH = [
   { id: "scribe", ic: "📜", n: "Летописец", d: "100 записей", ok: P => P.entries >= 100 },
   { id: "streak30", ic: "⛓", n: "Несгибаемый", d: "30 дней подряд с записями", ok: P => P.longest >= 30 },
   { id: "weigh", ic: "⚙", n: "Взгляд в зеркало", d: "Записать вес 5 раз", ok: P => P.weights >= 5 },
-  { id: "rankD", ic: "D", n: "Охотник ранга D", d: "Достичь 10 уровня", ok: P => P.level >= 10 },
-  { id: "rankC", ic: "C", n: "Охотник ранга C", d: "Достичь 20 уровня", ok: P => P.level >= 20 },
-  { id: "rankB", ic: "B", n: "Охотник ранга B", d: "Достичь 35 уровня", ok: P => P.level >= 35 },
-  { id: "rankA", ic: "A", n: "Охотник ранга A", d: "Достичь 50 уровня", ok: P => P.level >= 50 },
-  { id: "rankS", ic: "S", n: "Охотник ранга S", d: "Достичь 70 уровня", ok: P => P.level >= 70 },
+  { id: "rankD", ic: "D", n: "Охотник ранга D", d: "Сдать экзамен на ранг D", ok: P => rankIdx(P.rank) >= 1 },
+  { id: "rankC", ic: "C", n: "Охотник ранга C", d: "Сдать экзамен на ранг C", ok: P => rankIdx(P.rank) >= 2 },
+  { id: "rankB", ic: "B", n: "Охотник ранга B", d: "Сдать экзамен на ранг B", ok: P => rankIdx(P.rank) >= 3 },
+  { id: "rankA", ic: "A", n: "Охотник ранга A", d: "Сдать экзамен на ранг A", ok: P => rankIdx(P.rank) >= 4 },
+  { id: "rankS", ic: "S", n: "Охотник ранга S", d: "Сдать экзамен на ранг S", ok: P => rankIdx(P.rank) >= 5 },
+  { id: "rankN", ic: "N", n: "Национальный уровень", d: "Сдать экзамен национального уровня", ok: P => rankIdx(P.rank) >= 6 },
   { id: "monarch", ic: "☠", n: "Монарх Теней", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
 ];
 
@@ -289,6 +297,7 @@ const sysQueue = [];
 let sysOpen = false;
 function system(o) { sysQueue.push(o); if (!sysOpen) nextSystem(); }
 function nextSystem() {
+  if (sysQueue.length && S.sound !== false) try { sfx(sysQueue[0].kind); } catch {}
   const o = sysQueue.shift(); if (!o) { sysOpen = false; return; }
   sysOpen = true;
   const bg = document.createElement("div");
@@ -310,12 +319,12 @@ function checkEvents(P) {
     const got = seen.quests[td] || [];
     for (const q of QUESTS) if (day.q[q.id].done && !got.includes(q.id)) {
       got.push(q.id); changed = true;
-      system({ tag: "КВЕСТ ВЫПОЛНЕН", head: q.name, body: `Награда: +${q.xp} XP` });
+      system({ tag: "КВЕСТ ВЫПОЛНЕН", head: q.name, body: `Награда: +${q.xp} XP\n\n${phrase("quest")}` });
     }
     if (day.all && !got.includes("all")) {
       got.push("all"); changed = true;
       postEvent("quests", "выполнил все ежедневные квесты");
-      system({ tag: "ЕЖЕДНЕВНЫЙ КВЕСТ", head: "Все задания выполнены", body: `Бонус: +${XP.allBonus} XP\nСистема довольна вашей дисциплиной.` });
+      system({ tag: "ЕЖЕДНЕВНЫЙ КВЕСТ", head: "Все задания выполнены", body: `Бонус: +${XP.allBonus} XP\n\n${phrase("allQuests")}` });
     }
     seen.quests[td] = got;
     // чистим старые отметки
@@ -325,23 +334,34 @@ function checkEvents(P) {
     const d = addDays(td, -i), dd = P.days[d];
     if (dd && dd.penalty && !seen.penalties.includes(d)) {
       seen.penalties.push(d); changed = true;
-      system({ kind: "penalty", tag: "ШТРАФ", head: humanDate(d), body: `${dd.penalty.why}\n${dd.penalty.xp} XP`, btn: "Понятно" });
+      system({ kind: "penalty", tag: "ШТРАФ", head: humanDate(d), body: `${dd.penalty.why}\n${dd.penalty.xp} XP\n\n${phrase("penalty")}`, btn: "Понятно" });
     }
   }
   seen.penalties = seen.penalties.filter(d => d >= addDays(td, -10));
   if (P.level > seen.level) {
-    const oldRank = rankOf(seen.level);
+    const oldRank = seen.rank || "E";
     system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `LV. ${P.level}`,
-      body: P.rank !== oldRank ? `Новый ранг: ${P.rank}\nВы стали сильнее.` : "Вы стали сильнее." });
+      body: phrase("levelup") });
     postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга ${P.rank}` : `достиг ${P.level} уровня`);
-    seen.level = P.level; changed = true;
+    seen.level = P.level; seen.rank = P.rank; changed = true;
   } else if (P.level < seen.level) { seen.level = P.level; changed = true; }
+  if (P.rank !== (seen.rank || "E")) { seen.rank = P.rank; changed = true; }
   for (const a of ACH) if (a.ok(P) && !seen.ach.includes(a.id)) {
     seen.ach.push(a.id); changed = true;
     system({ kind: "achv", tag: "ДОСТИЖЕНИЕ", head: a.n, body: `${a.d}\nПолучен титул «${a.n}».` });
     postEvent("ach", `получил титул «${a.n}»`);
   }
   if (changed) save();
+}
+
+function greet(P) {
+  const td = today();
+  if (S.seen.greet === td || !S.profile || S.profile.createdAt === td) { if (!S.seen.greet) { S.seen.greet = td; save(); } return; }
+  const y = P.days[addDays(td, -1)], missed = y && y.s.count === 0 && !y.q.workout.done;
+  S.seen.greet = td; save();
+  const sk = skillTodayState();
+  system({ tag: "СИСТЕМА", head: missed ? "Ты вернулся" : "Новый день",
+    body: `${missed ? phrase("comeback") : phrase("morning")}\n\n[ЕЖЕДНЕВНЫЙ КВЕСТ]\n${QUESTS.map(q => "◇ " + q.name).join("\n")}${sk === "todo" ? "\n◇ Задание навыка" : ""}${S.exam && S.exam.status === "active" ? "\n\n⚔ Идёт экзамен на ранг " + S.exam.to + ". Ни одной ошибки." : ""}`, btn: "Принять" });
 }
 
 function syncSeenSilently() {
@@ -396,6 +416,8 @@ function render() {
   renderTabbar();
   checkEvents(P);
   settleGates(P).then(() => { /* изменения подхватит следующий render */ });
+  settleExam(P);
+  greet(P);
 }
 
 /* ============================ общие куски ============================ */
@@ -474,6 +496,7 @@ function renderStatus(P) {
       <div class="macros">${macroBar("Белки", s.p, t.p)}${macroBar("Жиры", s.f, t.f)}${macroBar("Углеводы", s.c, t.c)}</div>
     </div>
     ${questsWin(P, td)}
+    ${examWin(P)}
     ${API_URL && S.player ? gatesWin(P) : ""}
     <div class="grid2">
       <button class="btn block" data-act="photo">📷 Фото еды</button>
@@ -492,6 +515,7 @@ function renderStatus(P) {
   $app.querySelector("[data-hunter]").onclick = () => { tab = "hunter"; render(); window.scrollTo(0, 0); };
   bindQuests(P);
   if (API_URL && S.player) bindGates($app, P);
+  bindExam($app, P);
 }
 function planWin(t) {
   return `<div class="win violet mt"><div class="win-h">План Системы<span class="right">${t.target} кг</span></div>
@@ -798,7 +822,7 @@ function openWorkout(date, lvl) {
       el.querySelector("#wk").innerHTML = `<h2>Тренировка Системы</h2>
         <div class="tiny muted mb">${humanDate(date)} · уровень ${lvl}: нормы растут вместе с уровнем</div>
         ${EX.map(ex => {
-          const tg = exTarget(ex, lvl), v = w[ex.id] || 0, done = v >= tg;
+          const tg = exTarget(ex, lvl, date), v = w[ex.id] || 0, done = v >= tg;
           return `<div class="quest ${done ? "done" : ""}"><div class="box">${done ? "✓" : ""}</div>
             <div class="grow"><div class="qt">${ex.n}</div><div class="qp">${r1(v)} / ${tg}${ex.unit}</div>
               <div class="bar" style="margin-top:5px"><i style="width:${clamp(v / tg * 100, 0, 100)}%"></i></div></div>
@@ -812,12 +836,12 @@ function openWorkout(date, lvl) {
         <button class="btn block mt" id="wk-close">Готово</button>`;
       const set = (id, v) => {
         const ex = EX.find(e => e.id === id);
-        S.workouts[date] = Object.assign({}, wDay(date), { [id]: Math.max(0, r1(Math.min(v, exTarget(ex, lvl) * 3))) });
+        S.workouts[date] = Object.assign({}, wDay(date), { [id]: Math.max(0, r1(Math.min(v, exTarget(ex, lvl, date) * 3))) });
         save(); draw(); render();
       };
       el.querySelectorAll("[data-inc]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.inc); set(ex.id, (wDay(date)[ex.id] || 0) + ex.inc); });
       el.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.dec); set(ex.id, (wDay(date)[ex.id] || 0) - ex.inc); });
-      el.querySelectorAll("[data-full]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.full); set(ex.id, exTarget(ex, lvl)); });
+      el.querySelectorAll("[data-full]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.full); set(ex.id, exTarget(ex, lvl, date)); });
       el.querySelector("#wk-close").onclick = close;
     };
     draw();
@@ -860,6 +884,12 @@ function renderSettings() {
   $app.innerHTML = `
     <div class="screen-title"><button class="icon-btn" id="back-hunter">‹</button><h1>Настройки</h1></div>
     ${accountWin()}
+    <div class="win"><div class="win-h">Уведомления и звук</div>
+      <div class="small mb">Система напомнит о квесте утром, днём (если ничего не записано) и вечером (если квест не закрыт), и сообщит о вызове на дуэль.</div>
+      <button class="btn block ${pushOn() ? "ghost" : ""}" id="push-btn">${pushOn() ? "Уведомления включены · выключить" : "Включить уведомления"}</button>
+      <div class="tiny muted mt" id="push-hint">${!("PushManager" in window) ? "Чтобы получать уведомления на iPhone, открой ARISE с иконки на экране «Домой» (iOS 16.4 или новее)." : ""}</div>
+      <div class="row mt"><span class="grow small">Звуки Системы</span><button class="btn sm ${S.sound === false ? "ghost" : ""}" id="snd-btn">${S.sound === false ? "Выкл" : "Вкл"}</button></div>
+    </div>
     <div class="win"><div class="win-h">Параметры тела и цель</div>
       ${profileFields(p, false)}
       <button class="btn block mt" id="save-prof">Сохранить параметры</button>
@@ -881,8 +911,10 @@ function renderSettings() {
       <div class="tiny muted mt">Записей: ${S.entries.length}. ${S.player ? "Копия данных хранится на сервере — восстановишь по коду." : "Данные лежат только в этом браузере — делай экспорт."}</div>
       <button class="btn danger block mt" id="reset">Сбросить всё</button>
     </div>
-    <div class="center tiny dim mb">ARISE · v2.0</div>`;
+    <div class="center tiny dim mb">ARISE · v4.0</div>`;
   document.getElementById("back-hunter").onclick = () => { tab = "hunter"; render(); };
+  document.getElementById("push-btn").onclick = togglePush;
+  document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
 
   document.getElementById("save-prof").onclick = () => {
@@ -911,6 +943,27 @@ function renderSettings() {
     localStorage.removeItem(STORE_KEY); S = defaultState(); tab = "status"; render();
   };
 }
+const pushOn = () => !!S.pushOn && typeof Notification !== "undefined" && Notification.permission === "granted";
+const b64u8 = b64 => { const p = "=".repeat((4 - b64.length % 4) % 4), s2 = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s2, c => c.charCodeAt(0)); };
+async function togglePush() {
+  if (pushOn()) {
+    try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch {}
+    try { await api("push_unsub", { token: S.player.token }); } catch {}
+    S.pushOn = false; save(); render(); toast("Уведомления выключены"); return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return toast("Открой ARISE с иконки на экране «Домой» — в браузере iPhone уведомления не работают", true);
+  if (!S.player) return toast("Сначала войди в рейтинг", true);
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return toast("Разреши уведомления в настройках iPhone: Настройки → Уведомления → ARISE", true);
+  try {
+    const { key } = await api("push_key");
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(key) });
+    await api("push_sub", { token: S.player.token, sub: sub.toJSON(), test: true });
+    S.pushOn = true; save(); render(); toast("Уведомления включены");
+  } catch (e) { toast("Не удалось включить: " + (e.message || e), true); }
+}
+
 function accountWin() {
   if (!S.player) return API_URL ? `<div class="win violet"><div class="win-h">Аккаунт</div>
     <div class="small muted mb">Ты ещё не в рейтинге.</div><button class="btn violet block" id="acc-reg">Войти в рейтинг</button></div>` : "";
@@ -1267,6 +1320,7 @@ function pickPhoto() {
 }
 initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL, postEvent });
 initGates({ S: () => S, save, api, esc, today, addDays, parseD, system, toast, render, postEvent, sheet });
+initExams({ S: () => S, save, today, addDays, parseD, system, postEvent, render, esc, sheet });
 
 const fileInput = document.createElement("input");
 fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
@@ -1417,4 +1471,13 @@ render();
 if (S.player) setTimeout(syncNow, 1500);
 // новый день — пересчитать при возвращении в приложение
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.profile && !document.querySelector(".sheet-bg")) render(); });
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(() => {});
+  // новая версия приложения установилась — один раз перезагружаемся, чтобы сразу её показать
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded || document.querySelector(".sheet-bg, .iv-ov, .sys-bg")) return;
+    reloaded = true; location.reload();
+  });
+}

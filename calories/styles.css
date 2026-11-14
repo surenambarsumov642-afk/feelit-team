@@ -438,3 +438,11 @@ a{color:var(--blue2)}
 .duel.active{border-color:rgba(255,77,109,.45);box-shadow:0 0 12px rgba(255,77,109,.15)}
 .duel-sc{display:flex;align-items:center;justify-content:space-around;margin:10px 0 4px;text-align:center}
 .duel-sc .sys-font{font-size:26px;color:#fff}
+
+/* ---------- этап 4: экзамены, ранг N ---------- */
+.rank-N{color:#ffd76a}
+.exam-win{border-color:rgba(255,77,109,.45);box-shadow:inset 0 0 24px rgba(255,77,109,.08),0 0 18px rgba(255,77,109,.12)}
+.exam-win::before,.exam-win::after{border-color:var(--bad);filter:drop-shadow(0 0 4px var(--bad))}
+.exam-win .win-h{color:#ffb3c0}.exam-win .win-h::before{background:var(--bad);box-shadow:0 0 10px var(--bad)}
+.ex-req{display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px dashed rgba(255,77,109,.15)}
+.ex-req.ok{color:var(--ok)}
