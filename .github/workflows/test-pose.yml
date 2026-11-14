@@ -1,0 +1,21 @@
+# Проверка камеры Системы: распознавание позы на реальных фото в настоящем браузере.
+name: Проверить распознавание позы
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["claude/**"]
+    paths: ["calories/repcount.js", "calories/pose.js", "calories/tests/**", ".github/workflows/test-pose.yml"]
+jobs:
+  pose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Playwright
+        run: npm i -s playwright@1 && npx playwright install --with-deps chromium
+      - name: Сервер и тест
+        run: |
+          python3 -m http.server 8080 >/dev/null 2>&1 &
+          sleep 1
+          node calories/tests/pose_ci.mjs

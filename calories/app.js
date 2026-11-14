@@ -5,6 +5,8 @@ import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finish
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
 import { phrase, sfx } from "./phrases.js";
+const CAM = ["push", "squat", "abs"]; // упражнения, которые считает камера (бег — вручную)
+const loadPose = () => import("./pose.js");
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -60,7 +62,7 @@ const ACTIVITY = [
 function defaultState() {
   return {
     v: 1, profile: null, player: null,
-    entries: [], weights: [], workouts: {}, skills: [], gates: {}, adj: [], extraTitles: [], duelsApplied: {}, title: null,
+    entries: [], weights: [], workouts: {}, verified: {}, skills: [], gates: {}, adj: [], extraTitles: [], duelsApplied: {}, title: null,
     seen: { level: 1, ach: [], quests: {}, penalties: [] },
   };
 }
@@ -178,7 +180,14 @@ const exTarget = (ex, lvl, d) => {
   return ex.id === "run" ? r1(v) : Math.round(v);
 };
 const wDay = d => S.workouts[d] || {};
-function workoutDone(d, lvl) { const w = wDay(d); return EX.every(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)); }
+const vDay = d => (S.verified || {})[d] || {};
+/** Во время экзамена отжимания/приседания/скручивания засчитываются только с камеры. */
+function workoutDone(d, lvl) {
+  const w = wDay(d), v = vDay(d), exam = exMult(d) !== 1;
+  return EX.every(ex => ((exam && CAM.includes(ex.id) ? v[ex.id] : w[ex.id]) || 0) >= exTarget(ex, lvl, d));
+}
+/** Тренировка подтверждена камерой: все «камерные» упражнения набраны по камере. */
+function workoutVerified(d, lvl) { const v = vDay(d); return EX.filter(ex => CAM.includes(ex.id)).every(ex => (v[ex.id] || 0) >= exTarget(ex, lvl, d)); }
 
 /* ============================ прогресс «Системы» ============================ */
 const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
@@ -207,7 +216,7 @@ function evalQuests(s, t, d, lvl) {
   const [lo, hi] = normRange(t);
   const w = wDay(d), parts = EX.filter(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)).length;
   return {
-    workout: { done: workoutDone(d, lvl), prog: `${parts}/${EX.length} упражнений` },
+    workout: { done: workoutDone(d, lvl), verified: workoutVerified(d, lvl), prog: `${parts}/${EX.length} упражнений${workoutVerified(d, lvl) ? " · ✓ камера" : ""}` },
     log: { done: s.count >= 1, prog: s.count ? `записей: ${s.count}` : "запиши всё, что ешь сегодня" },
     protein: { done: s.p >= t.p * 0.9, prog: `${r0(s.p)}/${r0(t.p * 0.9)} г` },
     norm: { done: s.kcal >= lo && s.kcal <= hi, over: s.kcal > hi, prog: `${lo}–${hi} ккал` },
@@ -235,7 +244,7 @@ function computeProgress() {
     const closed = d < td;
     let dx = XP.entry * Math.min(s.count, XP.entryCap) + (skXP[d] || 0);
     const doneIds = QUESTS.filter(x => q[x.id].done).map(x => x.id);
-    for (const id of doneIds) dx += QUESTS.find(x => x.id === id).xp;
+    for (const id of doneIds) dx += id === "workout" && !q.workout.verified ? Math.round(XP.workout / 2) : QUESTS.find(x => x.id === id).xp;
     const all = doneIds.length === QUESTS.length;
     if (all) { dx += XP.allBonus; perfectDays++; }
     if (q.protein.done) proteinDays++;
@@ -469,7 +478,7 @@ function questsWin(P, date) {
     const cls = st.done ? "done" : (q.id === "norm" && st.over) ? "fail" : "";
     return `<div class="quest ${cls}" ${q.id === "workout" ? `data-workout="${date}" style="cursor:pointer"` : ""}><div class="box">${st.done ? "✓" : cls === "fail" ? "✕" : ""}</div>
       <div class="grow"><div class="qt">${q.name}${q.id === "workout" ? ` <span class="tiny" style="color:var(--blue2)">открыть ›</span>` : ""}</div><div class="qp">${st.prog}${q.id === "norm" && st.over ? " · превышено" : ""}</div></div>
-      <div class="xp">+${q.xp}</div></div>`;
+      <div class="xp">${q.id === "workout" ? (st.done && !st.verified ? "+40" : "+80") : "+" + q.xp}</div></div>`;
   }).join("");
   return `<div class="win"><div class="win-h">Ежедневный квест<span class="right">бонус за все: +${XP.allBonus} XP</span></div>
     <div class="tiny muted mb">[Подготовка к укреплению тела]</div>${rows}</div>`;
@@ -740,9 +749,13 @@ async function loadFeed() {
   try { const d = await api("feed"); feed = d.events || []; feedAt = Date.now(); } catch (e) { feed = feed || []; toast(e.message, true); }
   if (tab === "rating") render();
 }
+let lives = [];
 async function loadDuels() {
   if (!S.player) return;
-  try { const d = await api("duels", { token: S.player.token }); duels = d.duels || []; duelsAt = Date.now(); applyDuels(); } catch (e) { duels = duels || []; toast(e.message, true); }
+  try {
+    const [d, l] = await Promise.all([api("duels", { token: S.player.token }), api("live_list", { token: S.player.token })]);
+    duels = d.duels || []; lives = l.live || []; duelsAt = Date.now(); applyDuels(); applyLives(lives);
+  } catch (e) { duels = duels || []; toast(e.message, true); }
   if (tab === "rating") render();
 }
 function applyDuels() {
@@ -758,6 +771,59 @@ function applyDuels() {
   }
   if (ch) save();
 }
+const EXN = { push: "Отжимания", squat: "Приседания", abs: "Скручивания" };
+function applyLives(list) {
+  S.liveApplied = S.liveApplied || {};
+  let ch = false;
+  for (const d of list || []) {
+    if (d.status !== "done" || S.liveApplied[d.id]) continue;
+    S.liveApplied[d.id] = 1; ch = true;
+    const iA = d.a === S.player.id, my = iA ? d.a_reps : d.b_reps, their = iA ? d.b_reps : d.a_reps, opp = iA ? d.b_name : d.a_name;
+    if (!d.winner) { system({ tag: "ЖИВАЯ ДУЭЛЬ", head: "Ничья", body: `${my} : ${their}\n${EXN[d.exercise]} против ${opp}` }); continue; }
+    const won = d.winner === S.player.id;
+    S.adj.push({ date: today(), xp: won ? d.stake : -d.stake, why: `Живая дуэль с ${opp}` });
+    system({ kind: won ? "levelup" : "penalty", tag: won ? "ПОБЕДА" : "ПОРАЖЕНИЕ", head: `${my} : ${their}`, body: `${EXN[d.exercise]} против ${opp}\n${won ? "+" : "−"}${d.stake} XP\n\n${phrase(won ? "allQuests" : "penalty")}` });
+  }
+  if (ch) save();
+}
+/** Живая дуэль: ожидание соперника → отсчёт → камера с гонкой → итог. */
+async function runLive(id) {
+  loadPose().then(m => m.preloadPose()); // модель позы качается, пока ждём соперника
+  const st = async () => api("live_state", { token: S.player.token, id });
+  let r = await st();
+  if (r.duel.status === "pending") {
+    const ok = await new Promise(res => {
+      sheet(`<div class="center"><div class="tag-sys">ЖИВАЯ ДУЭЛЬ</div><div class="sys-font mt" style="font-size:19px;color:#fff">Ждём соперника…</div>
+        <div class="small muted mt">Вызов действует 10 минут. Как только соперник примет, начнётся отсчёт.</div><div class="mt"><span class="spinner"></span></div>
+        <button class="btn ghost block mt" id="lw-x">Закрыть</button></div>`, (el, close) => {
+        let alive = true;
+        el.querySelector("#lw-x").onclick = () => { alive = false; close(); res(false); };
+        (async () => { while (alive) { await new Promise(t => setTimeout(t, 2000)); if (!alive) return;
+          try { r = await st(); } catch { continue; }
+          if (r.duel.status === "active") { alive = false; close(); return res(true); }
+          if (r.duel.status !== "pending") { alive = false; close(); toast("Вызов отклонён или устарел", true); return res(false); } } })();
+      });
+    });
+    if (!ok) return;
+  }
+  if (r.duel.status !== "active") { if (r.duel.status === "done") { applyLives([r.duel]); render(); } return; }
+  const d = r.duel, iA = d.a === S.player.id, offset = r.server_now - Date.now();
+  const { openCamera } = await loadPose();
+  let last = { opp: 0 };
+  openCamera({ kind: d.exercise, esc, sfx: k => S.sound !== false && sfx(k),
+    race: { seconds: d.seconds, startAt: Date.parse(d.start_at) - offset,
+      push: reps => api("live_update", { token: S.player.token, id, reps }).then(x => { last = { opp: iA ? x.duel.b_reps : x.duel.a_reps, oppName: iA ? x.duel.b_name : x.duel.a_name }; }),
+      poll: async () => last },
+    onFinish: async reps => {
+      try { await api("live_update", { token: S.player.token, id, reps }); } catch {}
+      toast("Подсчёт результата…");
+      for (let i = 0; i < 12; i++) {
+        await new Promise(t => setTimeout(t, 1500));
+        try { const x = await st(); if (x.duel.status === "done") { applyLives([x.duel]); duels = null; render(); return; } } catch {}
+      }
+    } });
+}
+
 const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); return m < 1 ? "только что" : m < 60 ? `${m} мин` : m < 1440 ? `${Math.round(m / 60)} ч` : `${Math.round(m / 1440)} д`; };
 
 function renderRating(P) {
@@ -803,7 +869,17 @@ function renderRating(P) {
         <span class="tiny dim">${ago(ev.created_at)}</span></div>`).join("") : `<div class="empty">Пока тихо. Сделай первый шаг — и он появится здесь.</div>`}</div>`;
   } else {
     const list = duels || [];
-    body = `<div class="win"><div class="win-h">Дуэли<span class="right">7 дней</span></div>
+    const liveRows = (lives || []).map(d => {
+      const iA = d.a === me, opp = iA ? d.b_name : d.a_name, my = iA ? d.a_reps : d.b_reps, their = iA ? d.b_reps : d.a_reps;
+      return `<div class="duel live ${d.status}"><div class="row"><b class="grow">⚡ ${esc(opp)}</b><span class="tiny muted">${EXN[d.exercise]} · 60 сек · ${d.stake} XP</span></div>
+        ${d.status === "pending" ? (iA ? `<button class="btn ghost sm block mt" data-lgo="${d.id}">Ждём ответа — открыть</button>` :
+          `<div class="grid2 mt"><button class="btn danger sm" data-lresp="${d.id}" data-acc="0">Отказаться</button><button class="btn-epic" data-lresp="${d.id}" data-acc="1">В бой!</button></div>`) :
+        d.status === "active" ? `<button class="btn-epic block mt" data-lgo="${d.id}">Войти в бой</button>` :
+        `<div class="duel-sc"><div><div class="sys-font">${my}</div><div class="tiny muted">ты</div></div><div class="tiny dim">vs</div><div><div class="sys-font">${their}</div><div class="tiny muted">${esc(opp)}</div></div></div>
+         <div class="tiny center ${d.winner === me ? "ok" : d.winner ? "bad" : "muted"}">${d.winner === me ? "Победа" : d.winner ? "Поражение" : "Ничья"}</div>`}</div>`;
+    }).join("");
+    body = `${liveRows ? `<div class="win live-win"><div class="win-h">⚡ Живые дуэли</div>${liveRows}</div>` : ""}
+      <div class="win"><div class="win-h">Дуэли<span class="right">7 дней</span></div>
       <div class="tiny muted mb">Вызов — в таблице рейтинга, тапом по сопернику. Дуэль начинается со следующего дня после принятия. Победитель забирает ставку XP.</div>
       ${!duels ? `<div class="center"><span class="spinner"></span></div>` : list.length ? list.map(d => {
         const iA = d.a === me, opp = iA ? d.b_name : d.a_name;
@@ -834,6 +910,14 @@ function renderRating(P) {
     try { if (navigator.share) await navigator.share({ title: "ARISE", text: "Давай соревноваться в ARISE!", url }); else { await navigator.clipboard.writeText(url); toast("Ссылка скопирована"); } } catch {}
   };
   $app.querySelectorAll("[data-duel]").forEach(r => r.onclick = () => openDuel(r.dataset.duel, r.dataset.name));
+  $app.querySelectorAll("[data-lgo]").forEach(b => b.onclick = () => runLive(b.dataset.lgo).catch(e => toast(e.message, true)));
+  $app.querySelectorAll("[data-lresp]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await api("live_respond", { token: S.player.token, id: b.dataset.lresp, accept: b.dataset.acc === "1" });
+      if (b.dataset.acc === "1") runLive(b.dataset.lresp).catch(e => toast(e.message, true)); else { duels = null; render(); }
+    } catch (e) { toast(e.message, true); b.disabled = false; }
+  });
   $app.querySelectorAll("[data-dresp]").forEach(b => b.onclick = async () => {
     b.disabled = true;
     try { await api("duel_respond", { token: S.player.token, id: b.dataset.dresp, accept: b.dataset.acc === "1" }); toast(b.dataset.acc === "1" ? "Вызов принят. Дуэль начнётся завтра." : "Вызов отклонён"); duels = null; render(); }
@@ -841,11 +925,24 @@ function renderRating(P) {
   });
 }
 function openDuel(id, name) {
-  let metric = "xp", stake = 100;
-  sheet(`<h2>Дуэль</h2><div class="small mb">Вызвать <b>${esc(name)}</b> на дуэль на 7 дней.</div>
+  let metric = "xp", stake = 100, mode = "week", exercise = "push";
+  sheet(`<h2>Дуэль</h2><div class="small mb">Вызвать <b>${esc(name)}</b> на дуэль.</div>
+    <div class="seg mb" id="dmode"><button data-mode="week" class="on">Недельная</button><button data-mode="live">⚡ Живая · 60 сек</button></div>
+    <div id="dlive" class="hidden"><div class="small mb">Вы одновременно включаете камеры. Кто сделает больше повторов за 60 секунд — забирает 50 XP. Камера считает сама.</div>
+      <div class="f">Упражнение</div><div class="chips-row">${Object.entries(EXN).map(([k, v]) => `<button class="chip-b ${k === exercise ? "on" : ""}" data-ex="${k}">${v}</button>`).join("")}</div>
+      <button class="btn-epic block mt" id="lg">⚡ Бросить живой вызов</button></div>
+    <div id="dweek">
     <div class="f">Кто…</div><div class="chips-row" id="dm">${Object.entries(METRICS).map(([k, v]) => `<button class="chip-b ${k === metric ? "on" : ""}" data-m="${k}">${v}</button>`).join("")}</div>
     <div class="f mt">Ставка XP (победитель забирает у проигравшего)</div><div class="chips-row" id="ds">${[50, 100, 200, 300].map(v => `<button class="chip-b ${v === stake ? "on" : ""}" data-s="${v}">${v}</button>`).join("")}</div>
-    <button class="btn-epic block mt" id="dg">Бросить вызов</button>`, (el, close) => {
+    <button class="btn-epic block mt" id="dg">Бросить вызов</button></div>`, (el, close) => {
+    el.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; el.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("on", x === b));
+      el.querySelector("#dlive").classList.toggle("hidden", mode !== "live"); el.querySelector("#dweek").classList.toggle("hidden", mode === "live"); });
+    el.querySelectorAll("[data-ex]").forEach(b => b.onclick = () => { exercise = b.dataset.ex; el.querySelectorAll("[data-ex]").forEach(x => x.classList.toggle("on", x === b)); });
+    el.querySelector("#lg").onclick = async () => {
+      const btn = el.querySelector("#lg"); btn.disabled = true;
+      try { const r = await api("live_create", { token: S.player.token, opponent: id, exercise }); close(); rtab = "duels"; duels = null; render(); runLive(r.id).catch(e => toast(e.message, true)); }
+      catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
     el.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { metric = b.dataset.m; el.querySelectorAll("[data-m]").forEach(x => x.classList.toggle("on", x === b)); });
     el.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { stake = +b.dataset.s; el.querySelectorAll("[data-s]").forEach(x => x.classList.toggle("on", x === b)); });
     el.querySelector("#dg").onclick = async () => {
@@ -866,17 +963,18 @@ function openWorkout(date, lvl) {
       el.querySelector("#wk").innerHTML = `<h2>Тренировка Системы</h2>
         <div class="tiny muted mb">${humanDate(date)} · уровень ${lvl}: нормы растут вместе с уровнем</div>
         ${EX.map(ex => {
-          const tg = exTarget(ex, lvl, date), v = w[ex.id] || 0, done = v >= tg;
+          const tg = exTarget(ex, lvl, date), v = w[ex.id] || 0, done = v >= tg, cam = CAM.includes(ex.id), vv = vDay(date)[ex.id] || 0;
           return `<div class="quest ${done ? "done" : ""}"><div class="box">${done ? "✓" : ""}</div>
-            <div class="grow"><div class="qt">${ex.n}</div><div class="qp">${r1(v)} / ${tg}${ex.unit}</div>
+            <div class="grow"><div class="qt">${ex.n}</div><div class="qp">${r1(v)} / ${tg}${ex.unit}${cam && vv ? ` · <span class="ok">камера ${vv}</span>` : ""}</div>
               <div class="bar" style="margin-top:5px"><i style="width:${clamp(v / tg * 100, 0, 100)}%"></i></div></div>
             <div class="row" style="gap:6px">
+              ${cam ? `<button class="icon-btn cam-btn" data-cam="${ex.id}" aria-label="Камера">📷</button>` : ""}
               <button class="icon-btn" data-dec="${ex.id}">−</button>
               <button class="icon-btn" data-inc="${ex.id}" style="width:auto;padding:0 8px">+${ex.inc}</button>
               <button class="icon-btn" data-full="${ex.id}" style="color:var(--ok)">✓</button>
             </div></div>`;
         }).join("")}
-        <div class="notice mt">[ВНИМАНИЕ] Невыполнение не наказывается штрафом — но Система всё видит. Награда: +${XP.workout} XP.</div>
+        <div class="notice mt">📷 <b>С камерой</b> — тренировка подтверждена: +${XP.workout} XP и ✓. Вручную — +${Math.round(XP.workout / 2)} XP.${exMult(date) !== 1 ? "<br><b class=\"bad\">Идёт экзамен: отжимания, приседания и скручивания засчитываются только с камеры.</b>" : ""}<br>Камера считает повторы прямо на телефоне — видео никуда не отправляется.</div>
         <button class="btn block mt" id="wk-close">Готово</button>`;
       const set = (id, v) => {
         const ex = EX.find(e => e.id === id);
@@ -886,6 +984,29 @@ function openWorkout(date, lvl) {
       el.querySelectorAll("[data-inc]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.inc); set(ex.id, (wDay(date)[ex.id] || 0) + ex.inc); });
       el.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.dec); set(ex.id, (wDay(date)[ex.id] || 0) - ex.inc); });
       el.querySelectorAll("[data-full]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.full); set(ex.id, exTarget(ex, lvl, date)); });
+      el.querySelectorAll("[data-cam]").forEach(b => b.onclick = async () => {
+        const ex = EX.find(e => e.id === b.dataset.cam);
+        b.disabled = true;
+        try {
+          const { openCamera } = await loadPose();
+          const left = Math.max(0, exTarget(ex, lvl, date) - (vDay(date)[ex.id] || 0));
+          openCamera({ kind: ex.id, target: left || exTarget(ex, lvl, date), esc, sfx: k => S.sound !== false && sfx(k), onFinish: reps => {
+            if (!reps) return;
+            S.verified = S.verified || {};
+            S.verified[date] = Object.assign({}, vDay(date), { [ex.id]: (vDay(date)[ex.id] || 0) + reps });
+            const cur = wDay(date)[ex.id] || 0, ver = S.verified[date][ex.id];
+            S.workouts[date] = Object.assign({}, wDay(date), { [ex.id]: Math.max(cur, ver) });
+            save(); draw(); render();
+            toast(`📷 ${ex.n}: +${reps} (подтверждено камерой)`);
+            const P2 = computeProgress(), d2 = P2.days[date];
+            if (d2 && d2.q.workout.verified && !(S.seen.verifiedPosted || []).includes(date)) {
+              S.seen.verifiedPosted = [...(S.seen.verifiedPosted || []).slice(-30), date]; save();
+              postEvent("workout", "выполнил тренировку Системы, подтверждённую камерой ✓");
+            }
+          } });
+        } catch (e) { toast("Не удалось открыть камеру: " + (e.message || e), true); }
+        b.disabled = false;
+      });
       el.querySelector("#wk-close").onclick = close;
     };
     draw();

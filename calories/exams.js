@@ -119,7 +119,7 @@ export function examWin(P) {
       <div class="bar thick"><i style="width:${Math.min(100, (n - 1) / def.days * 100)}%"></i></div>
       <div class="small mt"><b>Сегодня без ошибок:</b></div>
       <div class="ex-req ${P.days[td] && P.days[td].all ? "ok" : ""}">${P.days[td] && P.days[td].all ? "✓" : "◇"} Все ежедневные квесты</div>
-      <div class="ex-req">◇ Тренировка Системы ${m === "max" ? "100/100/100 и 10 км" : `×${m}`}${m === 3 ? " — день рейда!" : ""}</div>
+      <div class="ex-req">◇ Тренировка Системы ${m === "max" ? "100/100/100 и 10 км" : `×${m}`}${m === 3 ? " — день рейда!" : ""} · 📷 только с камерой</div>
       ${def.checks.map(c => `<div class="ex-req ${marks.includes(c) ? "ok" : ""}">${marks.includes(c) ? "✓" : "◇"} ${X.esc(c)}
         ${!marks.includes(c) && !before ? `<button class="btn sm" data-excheck="${X.esc(c)}">Отметить</button>` : ""}</div>`).join("")}
       ${def.weight ? `<div class="ex-req">◇ Вес не растёт (взвесься хотя бы раз до конца экзамена)</div>` : ""}
