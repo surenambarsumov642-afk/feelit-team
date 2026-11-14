@@ -1,6 +1,8 @@
 // ARISE — экзамены на ранг. Уровень открывает экзамен, ранг даётся только после сдачи.
 // Одна ошибка (пропущенный квест, недобитая тренировка, неотмеченное условие) — провал и пересдача через N дней.
 
+import { phrase } from "./phrases.js";
+
 let X; // { S(), save, today, addDays, parseD, system, postEvent, render, esc, sheet }
 export function initExams(ctx) { X = ctx; }
 
@@ -15,7 +17,7 @@ export const EXAMS = [
   { to: "S", level: 70, days: 45, mult: "max", checks: ALL, weight: true, final: true, cooldown: 14 },
   { to: "N", level: 85, days: 60, mult: "max", checks: ALL, weight: true, final: true, cooldown: 21 },
 ];
-export const RANK_TITLE = { E: "Охотник ранга E", D: "Охотник ранга D", C: "Охотник ранга C", B: "Охотник ранга B", A: "Охотник ранга A", S: "Охотник ранга S", N: "Охотник национального уровня" };
+export const RANK_TITLE = { E: "Новичок Врат", D: "Охотник", C: "Истребитель", B: "Элита Гильдии", A: "Гроза Подземелий", S: "Сильнейший", N: "Опора Нации" };
 const examFor = to => EXAMS.find(e => e.to === to);
 
 /** Ранг по уровню (без экзаменов). */
@@ -92,11 +94,9 @@ function passExam(ex) {
   S.rankEarned = ex.to; (S.examHistory = S.examHistory || []).push({ ...ex });
   S.exam = null; S.examCooldown = null;
   S.adj = S.adj || []; S.adj.push({ date: X.today(), xp: 100 * (rankIdx(ex.to) + 1), why: `Экзамен на ранг ${ex.to}` });
-  S.extraTitles = S.extraTitles || [];
-  const id = "rank_" + ex.to;
-  if (!S.extraTitles.some(t => t.id === id)) S.extraTitles.push({ id, ic: ex.to, n: RANK_TITLE[ex.to], d: `Экзамен на ранг ${ex.to} сдан (${examFor(ex.to).days} дней без ошибок)` });
+  // титул ранга выдаётся как достижение (rankD…rankN) — отдельный дубль больше не создаём
   X.save();
-  X.system({ kind: "levelup", tag: "ПОВЫШЕНИЕ РАНГА", head: `РАНГ ${ex.to}`, body: `Экзамен сдан.\nТы больше не тот, кем начинал.\n+${100 * (rankIdx(ex.to) + 1)} XP · титул «${RANK_TITLE[ex.to]}»` });
+  X.system({ kind: "rank", rank: ex.to, tag: "ПОВЫШЕНИЕ РАНГА", head: `РАНГ ${ex.to}`, body: `«${RANK_TITLE[ex.to]}»\n\n${phrase("rank")}\n\n+${100 * (rankIdx(ex.to) + 1)} XP`, btn: "Принять силу" });
   X.postEvent("exam", `сдал экзамен и получил ранг ${ex.to}`);
 }
 /** Следующий экзамен: доступен ли, или кулдаун. */

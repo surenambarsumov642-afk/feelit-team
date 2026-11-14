@@ -4,7 +4,8 @@ import { searchFoods, gramsFromText } from "./foods.js";
 import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
-import { phrase, sfx } from "./phrases.js";
+import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
+import { showIntro } from "./intro.js";
 const CAM = ["push", "squat", "abs"]; // упражнения, которые считает камера (бег — вручную)
 const loadPose = () => import("./pose.js");
 const loadScanner = () => import("./scanner.js");
@@ -277,50 +278,73 @@ function computeProgress() {
 }
 
 /* ============================ достижения ============================ */
+// r — редкость: 1 обычный, 2 редкий, 3 эпический, 4 легендарный, 5 мифический
 const ACH = [
-  { id: "awaken", ic: "⚡", n: "Пробуждённый", d: "Сделать первую запись", ok: P => P.entries >= 1 },
-  { id: "eye", ic: "👁", n: "Око Системы", d: "Распознать еду по фото", ok: P => P.photos >= 1 },
-  { id: "train1", ic: "🏋", n: "Первая тренировка", d: "Выполнить тренировку Системы", ok: P => P.workoutDays >= 1 },
-  { id: "train10", ic: "⚔", n: "Закалённый", d: "10 тренировок Системы", ok: P => P.workoutDays >= 10 },
-  { id: "train50", ic: "🛡", n: "Сила Монарха", d: "50 тренировок Системы", ok: P => P.workoutDays >= 50 },
-  { id: "perfect1", ic: "✦", n: "Идеальный день", d: "Выполнить все квесты за день", ok: P => P.perfectDays >= 1 },
-  { id: "streak3", ic: "🔥", n: "Начало пути", d: "3 дня подряд с записями", ok: P => P.longest >= 3 },
-  { id: "streak7", ic: "🗡", n: "Неделя без пропусков", d: "7 дней подряд с записями", ok: P => P.longest >= 7 },
-  { id: "protein10", ic: "💪", n: "Железное тело", d: "10 дней с нормой белка", ok: P => P.proteinDays >= 10 },
-  { id: "norm14", ic: "⚖", n: "Мастер баланса", d: "14 дней в норме калорий", ok: P => P.normDays >= 14 },
-  { id: "perfect7", ic: "♛", n: "Безупречный", d: "7 идеальных дней", ok: P => P.perfectDays >= 7 },
-  { id: "eye50", ic: "◎", n: "Всевидящий", d: "50 распознанных фото", ok: P => P.photos >= 50 },
-  { id: "scribe", ic: "📜", n: "Летописец", d: "100 записей", ok: P => P.entries >= 100 },
-  { id: "streak30", ic: "⛓", n: "Несгибаемый", d: "30 дней подряд с записями", ok: P => P.longest >= 30 },
-  { id: "mapper1", ic: "▦", n: "Первооткрыватель", d: "Добавить продукт в общую базу", ok: P => P.mapped >= 1 },
-  { id: "mapper10", ic: "🗺", n: "Картограф", d: "Добавить 10 продуктов в общую базу", ok: P => P.mapped >= 10 },
-  { id: "weigh", ic: "⚙", n: "Взгляд в зеркало", d: "Записать вес 5 раз", ok: P => P.weights >= 5 },
-  { id: "rankD", ic: "D", n: "Охотник ранга D", d: "Сдать экзамен на ранг D", ok: P => rankIdx(P.rank) >= 1 },
-  { id: "rankC", ic: "C", n: "Охотник ранга C", d: "Сдать экзамен на ранг C", ok: P => rankIdx(P.rank) >= 2 },
-  { id: "rankB", ic: "B", n: "Охотник ранга B", d: "Сдать экзамен на ранг B", ok: P => rankIdx(P.rank) >= 3 },
-  { id: "rankA", ic: "A", n: "Охотник ранга A", d: "Сдать экзамен на ранг A", ok: P => rankIdx(P.rank) >= 4 },
-  { id: "rankS", ic: "S", n: "Охотник ранга S", d: "Сдать экзамен на ранг S", ok: P => rankIdx(P.rank) >= 5 },
-  { id: "rankN", ic: "N", n: "Национальный уровень", d: "Сдать экзамен национального уровня", ok: P => rankIdx(P.rank) >= 6 },
-  { id: "monarch", ic: "☠", n: "Монарх Теней", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
+  { id: "awaken", r: 1, ic: "⚡", n: "Пробуждённый", d: "Сделать первую запись", ok: P => P.entries >= 1 },
+  { id: "eye", r: 1, ic: "👁", n: "Око Системы", d: "Распознать еду по фото", ok: P => P.photos >= 1 },
+  { id: "train1", r: 1, ic: "🩸", n: "Первая кровь", d: "Выполнить тренировку Системы", ok: P => P.workoutDays >= 1 },
+  { id: "perfect1", r: 1, ic: "✦", n: "Безупречный день", d: "Выполнить все квесты за день", ok: P => P.perfectDays >= 1 },
+  { id: "streak3", r: 1, ic: "🔥", n: "Искра", d: "3 дня подряд с записями", ok: P => P.longest >= 3 },
+  { id: "weigh", r: 1, ic: "⚙", n: "Взгляд в зеркало", d: "Записать вес 5 раз", ok: P => P.weights >= 5 },
+  { id: "mapper1", r: 1, ic: "▦", n: "Первооткрыватель", d: "Добавить продукт в общую базу", ok: P => P.mapped >= 1 },
+  { id: "streak7", r: 2, ic: "🗡", n: "Неделя без слабости", d: "7 дней подряд с записями", ok: P => P.longest >= 7 },
+  { id: "train10", r: 2, ic: "⚔", n: "Закалённый в бою", d: "10 тренировок Системы", ok: P => P.workoutDays >= 10 },
+  { id: "protein10", r: 2, ic: "💪", n: "Железная плоть", d: "10 дней с нормой белка", ok: P => P.proteinDays >= 10 },
+  { id: "streak14", r: 2, ic: "☄", n: "Пламя не гаснет", d: "14 дней подряд с записями", ok: P => P.longest >= 14 },
+  { id: "lvl25", r: 2, ic: "⬆", n: "Восходящий", d: "Достичь 25 уровня", ok: P => P.level >= 25 },
+  { id: "scribe", r: 2, ic: "📜", n: "Летописец Системы", d: "100 записей", ok: P => P.entries >= 100 },
+  { id: "rankD", r: 2, ic: "D", n: "Охотник", d: "Сдать экзамен на ранг D", ok: P => rankIdx(P.rank) >= 1 },
+  { id: "norm14", r: 3, ic: "⚖", n: "Мастер баланса", d: "14 дней в норме калорий", ok: P => P.normDays >= 14 },
+  { id: "perfect7", r: 3, ic: "♛", n: "Безупречный", d: "7 идеальных дней", ok: P => P.perfectDays >= 7 },
+  { id: "perfect14", r: 3, ic: "🌙", n: "Дисциплина клинка", d: "14 идеальных дней", ok: P => P.perfectDays >= 14 },
+  { id: "train50", r: 3, ic: "🛡", n: "Стальное тело", d: "50 тренировок Системы", ok: P => P.workoutDays >= 50 },
+  { id: "eye50", r: 3, ic: "◎", n: "Всевидящее Око", d: "50 распознанных фото", ok: P => P.photos >= 50 },
+  { id: "mapper10", r: 3, ic: "🗺", n: "Картограф", d: "Добавить 10 продуктов в общую базу", ok: P => P.mapped >= 10 },
+  { id: "entries500", r: 3, ic: "📖", n: "Хранитель хроник", d: "500 записей", ok: P => P.entries >= 500 },
+  { id: "rankC", r: 3, ic: "C", n: "Истребитель", d: "Сдать экзамен на ранг C", ok: P => rankIdx(P.rank) >= 2 },
+  { id: "rankB", r: 3, ic: "B", n: "Элита Гильдии", d: "Сдать экзамен на ранг B", ok: P => rankIdx(P.rank) >= 3 },
+  { id: "streak30", r: 4, ic: "⛓", n: "Несломленный", d: "30 дней подряд с записями", ok: P => P.longest >= 30 },
+  { id: "streak60", r: 4, ic: "🜂", n: "Воля из стали", d: "60 дней подряд с записями", ok: P => P.longest >= 60 },
+  { id: "train100", r: 4, ic: "⚚", n: "Армия одного", d: "100 тренировок Системы", ok: P => P.workoutDays >= 100 },
+  { id: "lvl50", r: 4, ic: "✷", n: "За пределом человека", d: "Достичь 50 уровня", ok: P => P.level >= 50 },
+  { id: "rankA", r: 4, ic: "A", n: "Гроза Подземелий", d: "Сдать экзамен на ранг A", ok: P => rankIdx(P.rank) >= 4 },
+  { id: "monarch", r: 5, ic: "☠", n: "Монарх Теней", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
+  { id: "streak100", r: 5, ic: "∞", n: "Бессмертный", d: "100 дней подряд с записями", ok: P => P.longest >= 100 },
+  { id: "perfect100", r: 5, ic: "👑", n: "Абсолют", d: "100 идеальных дней", ok: P => P.perfectDays >= 100 },
+  { id: "lvl100", r: 5, ic: "✹", n: "Тот, кто превзошёл Систему", d: "Достичь 100 уровня", ok: P => P.level >= 100 },
+  { id: "rankS", r: 5, ic: "S", n: "Сильнейший", d: "Сдать экзамен на ранг S", ok: P => rankIdx(P.rank) >= 5 },
+  { id: "rankN", r: 5, ic: "N", n: "Опора Нации", d: "Сдать экзамен национального уровня", ok: P => rankIdx(P.rank) >= 6 },
 ];
 
 /* ============================ окна «Системы» ============================ */
 const sysQueue = [];
 let sysOpen = false;
-function system(o) { sysQueue.push(o); if (!sysOpen) nextSystem(); }
+let introOn = false;
+function system(o) { sysQueue.push(o); if (!sysOpen && !introOn) nextSystem(); }
 function nextSystem() {
-  if (sysQueue.length && S.sound !== false) try { sfx(sysQueue[0].kind); } catch {}
   const o = sysQueue.shift(); if (!o) { sysOpen = false; return; }
   sysOpen = true;
+  if (S.sound !== false) try { sfx(o.kind || "info", o.rarity); } catch {}
+  const rar = o.kind === "achv" && o.rarity ? RARITY[o.rarity] : null;
+  const big = o.kind === "levelup" || o.kind === "rank" || (rar && o.rarity >= 3);
+  const col = o.kind === "rank" ? "#ffc24a" : rar ? rar.c : o.kind === "penalty" ? "#ff4d6d" : "#5ff0ff";
   const bg = document.createElement("div");
-  bg.className = "sys-bg";
-  bg.innerHTML = `<div class="sys ${o.kind || ""}">
-    <div class="tag">${esc(o.tag || "СИСТЕМА")}</div>
+  bg.className = `sys-bg fx-${o.kind || "info"}${big ? " big" : ""}`;
+  bg.style.setProperty("--fx", col);
+  const n = big ? 26 : 14;
+  const parts = big || o.kind === "all" ? Array.from({ length: n }, (_, i) =>
+    `<i style="--a:${Math.round(i * 360 / n + Math.random() * 10)}deg;--d:${(90 + Math.random() * 120) | 0}px;--t:${(0.7 + Math.random() * 0.6).toFixed(2)}s"></i>`).join("") : "";
+  bg.innerHTML = `${big ? '<div class="fx-rays"></div>' : ""}<div class="fx-flash"></div><div class="fx-parts">${parts}</div>
+    <div class="sys ${o.kind || ""} ${rar ? "rar-" + rar.id : ""}">
+    <div class="tag">${esc(o.tag || "СИСТЕМА")}${rar ? ` · ${rar.n.toUpperCase()}` : ""}</div>
+    ${o.icon ? `<div class="sys-ic">${esc(o.icon)}</div>` : ""}
     <div class="head">${esc(o.head)}</div>
-    ${o.body ? `<div class="body">${esc(o.body)}</div>` : ""}
+    ${o.body ? `<div class="body">${o.body.split("\n\n").map((p, i) => `<p style="animation-delay:${0.3 + i * 0.3}s">${esc(p)}</p>`).join("")}</div>` : ""}
     <button class="btn ${o.kind === "achv" ? "violet" : o.kind === "penalty" ? "danger" : ""}">${esc(o.btn || "Принять")}</button>
   </div>`;
-  bg.querySelector("button").onclick = () => { bg.remove(); nextSystem(); };
+  if (o.kind === "rank" || o.kind === "penalty") { document.body.classList.remove("shake"); void document.body.offsetWidth; document.body.classList.add("shake"); setTimeout(() => document.body.classList.remove("shake"), 700); }
+  if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) try { navigator.vibrate(o.kind === "rank" ? [80, 60, 160] : big ? [40, 40, 90] : o.kind === "penalty" ? [200] : 25); } catch {}
+  bg.querySelector("button").onclick = () => { bg.classList.add("out"); setTimeout(() => { bg.remove(); nextSystem(); }, 180); };
   document.body.appendChild(bg);
 }
 
@@ -331,12 +355,12 @@ function checkEvents(P) {
     const got = seen.quests[td] || [];
     for (const q of QUESTS) if (day.q[q.id].done && !got.includes(q.id)) {
       got.push(q.id); changed = true;
-      system({ tag: "КВЕСТ ВЫПОЛНЕН", head: q.name, body: `Награда: +${q.xp} XP\n\n${phrase("quest")}` });
+      system({ kind: "quest", tag: "КВЕСТ ВЫПОЛНЕН", head: q.name, body: `Награда: +${q.xp} XP\n\n${phrase("quest")}` });
     }
     if (day.all && !got.includes("all")) {
       got.push("all"); changed = true;
       postEvent("quests", "выполнил все ежедневные квесты");
-      system({ tag: "ЕЖЕДНЕВНЫЙ КВЕСТ", head: "Все задания выполнены", body: `Бонус: +${XP.allBonus} XP\n\n${phrase("allQuests")}` });
+      system({ kind: "all", tag: "ЕЖЕДНЕВНЫЙ КВЕСТ", head: "Все задания выполнены", body: `Бонус: +${XP.allBonus} XP\n\n${phrase("allQuests")}` });
     }
     seen.quests[td] = got;
     // чистим старые отметки
@@ -353,14 +377,14 @@ function checkEvents(P) {
   if (P.level > seen.level) {
     const oldRank = seen.rank || "E";
     system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `LV. ${P.level}`,
-      body: phrase("levelup") });
+      body: phrase("levelup") + "\n\nНовые требования Системы. Новая сила." });
     postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга ${P.rank}` : `достиг ${P.level} уровня`);
     seen.level = P.level; seen.rank = P.rank; changed = true;
   } else if (P.level < seen.level) { seen.level = P.level; changed = true; }
   if (P.rank !== (seen.rank || "E")) { seen.rank = P.rank; changed = true; }
   for (const a of ACH) if (a.ok(P) && !seen.ach.includes(a.id)) {
     seen.ach.push(a.id); changed = true;
-    system({ kind: "achv", tag: "ДОСТИЖЕНИЕ", head: a.n, body: `${a.d}\nПолучен титул «${a.n}».` });
+    system({ kind: "achv", rarity: a.r, icon: a.ic, tag: "НОВЫЙ ТИТУЛ", head: a.n, body: `${a.d}\n\n${phrase("achv")}`, btn: "Принять титул" });
     postEvent("ach", `получил титул «${a.n}»`);
   }
   if (changed) save();
@@ -372,7 +396,7 @@ function greet(P) {
   const y = P.days[addDays(td, -1)], missed = y && y.s.count === 0 && !y.q.workout.done;
   S.seen.greet = td; save();
   const sk = skillTodayState();
-  system({ tag: "СИСТЕМА", head: missed ? "Ты вернулся" : "Новый день",
+  system({ kind: missed ? "info" : "quest", tag: "СИСТЕМА", head: missed ? "Ты вернулся" : "Новый день",
     body: `${missed ? phrase("comeback") : phrase("morning")}\n\n[ЕЖЕДНЕВНЫЙ КВЕСТ]\n${QUESTS.map(q => "◇ " + q.name).join("\n")}${sk === "todo" ? "\n◇ Задание навыка" : ""}${S.exam && S.exam.status === "active" ? "\n\n⚔ Идёт экзамен на ранг " + S.exam.to + ". Ни одной ошибки." : ""}`, btn: "Принять" });
 }
 
@@ -412,7 +436,7 @@ function renderTabbar() {
   const b = (id, label) => `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
   bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
     <button class="tab-add fab" data-act="add" aria-label="Добавить еду">${ICONS.plus}</button>`;
-  bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { tab = x.dataset.tab; render(); window.scrollTo(0, 0); });
+  bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { if (tab !== x.dataset.tab && S.sound !== false) sfx("tab"); tab = x.dataset.tab; render(); window.scrollTo(0, 0); $app.classList.remove("enter"); void $app.offsetWidth; $app.classList.add("enter"); });
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
 }
 
@@ -494,6 +518,7 @@ function renderStatus(P) {
   $app.innerHTML = `
     <div class="screen-title"><h1>Статус</h1><span class="sub">${humanDate(td)}</span></div>
     ${hunterCard(P)}
+    <div class="daily-word"><span class="tag-sys">СЛОВО СИСТЕМЫ</span><div>${esc(dailyPhrase(td))}</div></div>
     ${statusCard()}
     <div class="win">
       <div class="win-h">Энергия дня<span class="right">норма ${t.kcal} ккал</span></div>
@@ -618,9 +643,9 @@ function renderHunter(P) {
         <div class="grow"><div class="an">${esc(a.n)}</div><div class="ad">${esc(a.d)}</div></div>
         <button class="btn sm ${S.title === a.id ? "violet" : "ghost"} sel" data-title="${a.id}">${S.title === a.id ? "Титул" : "Надеть"}</button></div>`).join("")}</div>` : ""}
     <div class="win violet"><div class="win-h">Достижения и титулы<span class="right">${[...got].length}/${ACH.length}</span></div>
-      ${ACH.map(a => `<div class="ach ${got.has(a.id) ? "got" : ""}">
+      ${ACH.map(a => `<div class="ach ${got.has(a.id) ? "got" : ""} rar-${RARITY[a.r].id}" style="--rc:${RARITY[a.r].c}">
         <div class="ic">${a.ic}</div>
-        <div class="grow"><div class="an">${esc(a.n)}</div><div class="ad">${esc(a.d)}</div></div>
+        <div class="grow"><div class="an">${esc(a.n)}</div><div class="ad"><span class="rar-l">${RARITY[a.r].n}</span> · ${esc(a.d)}</div></div>
         ${got.has(a.id) ? `<button class="btn sm ${S.title === a.id ? "violet" : "ghost"} sel" data-title="${a.id}">${S.title === a.id ? "Титул" : "Надеть"}</button>` : ""}
       </div>`).join("")}
     </div>`;
@@ -1256,6 +1281,7 @@ function renderOnboarding() {
 /* ============================ шторки ============================ */
 function sheet(html, onMount) {
   const bg = document.createElement("div"); bg.className = "sheet-bg";
+  if (S.sound !== false) try { sfx("open"); } catch {}
   bg.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
   const close = () => bg.remove();
   bg.addEventListener("click", e => { if (e.target === bg) close(); });
@@ -1569,6 +1595,7 @@ function addEntries(items, date, meal, thumb) {
   save();
   const k = items.reduce((a, i) => a + i.kcal, 0);
   toast(`+${r0(k)} ккал · ${mealName(meal)}`);
+  if (S.sound !== false) try { sfx("add"); } catch {}
   render();
 }
 
@@ -1767,6 +1794,15 @@ function openPhotoSheet(dataUrl, thumb, ctx) {
 }
 
 /* ============================ запуск ============================ */
+// экран входа — один раз за запуск; окна Системы ждут, пока игрок войдёт
+if (!sessionStorage.getItem("arise-intro")) {
+  sessionStorage.setItem("arise-intro", "1");
+  introOn = true;
+  const P0 = S.profile ? computeProgress() : null;
+  showIntro({ first: !S.profile, name: S.profile ? esc(S.profile.name) : "", level: P0 ? P0.level : 1, rank: P0 ? P0.rank : "E",
+    rankName: P0 ? RANK_NAMES[P0.rank] : "", sound: S.sound !== false })
+    .then(() => { introOn = false; if (!sysOpen) setTimeout(nextSystem, 350); });
+}
 render();
 if (S.player) setTimeout(syncNow, 1500);
 // новый день — пересчитать при возвращении в приложение
