@@ -5,6 +5,8 @@ import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finish
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
 import { phrase, sfx } from "./phrases.js";
+const CAM = ["push", "squat", "abs"]; // упражнения, которые считает камера (бег — вручную)
+const loadPose = () => import("./pose.js");
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -60,7 +62,7 @@ const ACTIVITY = [
 function defaultState() {
   return {
     v: 1, profile: null, player: null,
-    entries: [], weights: [], workouts: {}, skills: [], gates: {}, adj: [], extraTitles: [], duelsApplied: {}, title: null,
+    entries: [], weights: [], workouts: {}, verified: {}, skills: [], gates: {}, adj: [], extraTitles: [], duelsApplied: {}, title: null,
     seen: { level: 1, ach: [], quests: {}, penalties: [] },
   };
 }
@@ -178,7 +180,14 @@ const exTarget = (ex, lvl, d) => {
   return ex.id === "run" ? r1(v) : Math.round(v);
 };
 const wDay = d => S.workouts[d] || {};
-function workoutDone(d, lvl) { const w = wDay(d); return EX.every(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)); }
+const vDay = d => (S.verified || {})[d] || {};
+/** Во время экзамена отжимания/приседания/скручивания засчитываются только с камеры. */
+function workoutDone(d, lvl) {
+  const w = wDay(d), v = vDay(d), exam = exMult(d) !== 1;
+  return EX.every(ex => ((exam && CAM.includes(ex.id) ? v[ex.id] : w[ex.id]) || 0) >= exTarget(ex, lvl, d));
+}
+/** Тренировка подтверждена камерой: все «камерные» упражнения набраны по камере. */
+function workoutVerified(d, lvl) { const v = vDay(d); return EX.filter(ex => CAM.includes(ex.id)).every(ex => (v[ex.id] || 0) >= exTarget(ex, lvl, d)); }
 
 /* ============================ прогресс «Системы» ============================ */
 const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
@@ -207,7 +216,7 @@ function evalQuests(s, t, d, lvl) {
   const [lo, hi] = normRange(t);
   const w = wDay(d), parts = EX.filter(ex => (w[ex.id] || 0) >= exTarget(ex, lvl, d)).length;
   return {
-    workout: { done: workoutDone(d, lvl), prog: `${parts}/${EX.length} упражнений` },
+    workout: { done: workoutDone(d, lvl), verified: workoutVerified(d, lvl), prog: `${parts}/${EX.length} упражнений${workoutVerified(d, lvl) ? " · ✓ камера" : ""}` },
     log: { done: s.count >= 1, prog: s.count ? `записей: ${s.count}` : "запиши всё, что ешь сегодня" },
     protein: { done: s.p >= t.p * 0.9, prog: `${r0(s.p)}/${r0(t.p * 0.9)} г` },
     norm: { done: s.kcal >= lo && s.kcal <= hi, over: s.kcal > hi, prog: `${lo}–${hi} ккал` },
@@ -235,7 +244,7 @@ function computeProgress() {
     const closed = d < td;
     let dx = XP.entry * Math.min(s.count, XP.entryCap) + (skXP[d] || 0);
     const doneIds = QUESTS.filter(x => q[x.id].done).map(x => x.id);
-    for (const id of doneIds) dx += QUESTS.find(x => x.id === id).xp;
+    for (const id of doneIds) dx += id === "workout" && !q.workout.verified ? Math.round(XP.workout / 2) : QUESTS.find(x => x.id === id).xp;
     const all = doneIds.length === QUESTS.length;
     if (all) { dx += XP.allBonus; perfectDays++; }
     if (q.protein.done) proteinDays++;
@@ -469,7 +478,7 @@ function questsWin(P, date) {
     const cls = st.done ? "done" : (q.id === "norm" && st.over) ? "fail" : "";
     return `<div class="quest ${cls}" ${q.id === "workout" ? `data-workout="${date}" style="cursor:pointer"` : ""}><div class="box">${st.done ? "✓" : cls === "fail" ? "✕" : ""}</div>
       <div class="grow"><div class="qt">${q.name}${q.id === "workout" ? ` <span class="tiny" style="color:var(--blue2)">открыть ›</span>` : ""}</div><div class="qp">${st.prog}${q.id === "norm" && st.over ? " · превышено" : ""}</div></div>
-      <div class="xp">+${q.xp}</div></div>`;
+      <div class="xp">${q.id === "workout" ? (st.done && !st.verified ? "+40" : "+80") : "+" + q.xp}</div></div>`;
   }).join("");
   return `<div class="win"><div class="win-h">Ежедневный квест<span class="right">бонус за все: +${XP.allBonus} XP</span></div>
     <div class="tiny muted mb">[Подготовка к укреплению тела]</div>${rows}</div>`;
@@ -866,17 +875,18 @@ function openWorkout(date, lvl) {
       el.querySelector("#wk").innerHTML = `<h2>Тренировка Системы</h2>
         <div class="tiny muted mb">${humanDate(date)} · уровень ${lvl}: нормы растут вместе с уровнем</div>
         ${EX.map(ex => {
-          const tg = exTarget(ex, lvl, date), v = w[ex.id] || 0, done = v >= tg;
+          const tg = exTarget(ex, lvl, date), v = w[ex.id] || 0, done = v >= tg, cam = CAM.includes(ex.id), vv = vDay(date)[ex.id] || 0;
           return `<div class="quest ${done ? "done" : ""}"><div class="box">${done ? "✓" : ""}</div>
-            <div class="grow"><div class="qt">${ex.n}</div><div class="qp">${r1(v)} / ${tg}${ex.unit}</div>
+            <div class="grow"><div class="qt">${ex.n}</div><div class="qp">${r1(v)} / ${tg}${ex.unit}${cam && vv ? ` · <span class="ok">камера ${vv}</span>` : ""}</div>
               <div class="bar" style="margin-top:5px"><i style="width:${clamp(v / tg * 100, 0, 100)}%"></i></div></div>
             <div class="row" style="gap:6px">
+              ${cam ? `<button class="icon-btn cam-btn" data-cam="${ex.id}" aria-label="Камера">📷</button>` : ""}
               <button class="icon-btn" data-dec="${ex.id}">−</button>
               <button class="icon-btn" data-inc="${ex.id}" style="width:auto;padding:0 8px">+${ex.inc}</button>
               <button class="icon-btn" data-full="${ex.id}" style="color:var(--ok)">✓</button>
             </div></div>`;
         }).join("")}
-        <div class="notice mt">[ВНИМАНИЕ] Невыполнение не наказывается штрафом — но Система всё видит. Награда: +${XP.workout} XP.</div>
+        <div class="notice mt">📷 <b>С камерой</b> — тренировка подтверждена: +${XP.workout} XP и ✓. Вручную — +${Math.round(XP.workout / 2)} XP.${exMult(date) !== 1 ? "<br><b class=\"bad\">Идёт экзамен: отжимания, приседания и скручивания засчитываются только с камеры.</b>" : ""}<br>Камера считает повторы прямо на телефоне — видео никуда не отправляется.</div>
         <button class="btn block mt" id="wk-close">Готово</button>`;
       const set = (id, v) => {
         const ex = EX.find(e => e.id === id);
@@ -886,6 +896,29 @@ function openWorkout(date, lvl) {
       el.querySelectorAll("[data-inc]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.inc); set(ex.id, (wDay(date)[ex.id] || 0) + ex.inc); });
       el.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.dec); set(ex.id, (wDay(date)[ex.id] || 0) - ex.inc); });
       el.querySelectorAll("[data-full]").forEach(b => b.onclick = () => { const ex = EX.find(e => e.id === b.dataset.full); set(ex.id, exTarget(ex, lvl, date)); });
+      el.querySelectorAll("[data-cam]").forEach(b => b.onclick = async () => {
+        const ex = EX.find(e => e.id === b.dataset.cam);
+        b.disabled = true;
+        try {
+          const { openCamera } = await loadPose();
+          const left = Math.max(0, exTarget(ex, lvl, date) - (vDay(date)[ex.id] || 0));
+          openCamera({ kind: ex.id, target: left || exTarget(ex, lvl, date), esc, sfx: k => S.sound !== false && sfx(k), onFinish: reps => {
+            if (!reps) return;
+            S.verified = S.verified || {};
+            S.verified[date] = Object.assign({}, vDay(date), { [ex.id]: (vDay(date)[ex.id] || 0) + reps });
+            const cur = wDay(date)[ex.id] || 0, ver = S.verified[date][ex.id];
+            S.workouts[date] = Object.assign({}, wDay(date), { [ex.id]: Math.max(cur, ver) });
+            save(); draw(); render();
+            toast(`📷 ${ex.n}: +${reps} (подтверждено камерой)`);
+            const P2 = computeProgress(), d2 = P2.days[date];
+            if (d2 && d2.q.workout.verified && !(S.seen.verifiedPosted || []).includes(date)) {
+              S.seen.verifiedPosted = [...(S.seen.verifiedPosted || []).slice(-30), date]; save();
+              postEvent("workout", "выполнил тренировку Системы, подтверждённую камерой ✓");
+            }
+          } });
+        } catch (e) { toast("Не удалось открыть камеру: " + (e.message || e), true); }
+        b.disabled = false;
+      });
       el.querySelector("#wk-close").onclick = close;
     };
     draw();
