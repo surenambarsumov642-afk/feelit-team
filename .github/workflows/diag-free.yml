@@ -21,11 +21,11 @@ jobs:
           python3 -c "from PIL import Image; im=Image.open('orig.jpg').convert('RGB'); im.thumbnail((800,800)); im.save('food.jpg', quality=80)"
           file food.jpg; ls -la food.jpg
           file food.jpg | grep -q JPEG || { echo "фото не скачалось"; exit 1; }
-          echo "B64=$(base64 -w0 food.jpg)" >> $GITHUB_ENV
+          printf 'data:image/jpeg;base64,%s' "$(base64 -w0 food.jpg)" > img.txt
       - name: Groq — фото
         run: |
           for m in qwen/qwen3.8-27b; do
-            jq -n --arg m "$m" --arg img "data:image/jpeg;base64,$B64" '{model:$m, max_tokens:800, response_format:{type:"json_object"},
+            jq -n --arg m "$m" --rawfile img img.txt '{model:$m, max_tokens:800, response_format:{type:"json_object"},
               messages:[{role:"user",content:[{type:"text",text:"Определи продукты на фото, вес порции в граммах и калории каждого. Ответ JSON {\"items\":[{\"name\":\"\",\"grams\":0,\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
             code=$(curl -sS -o o.json -w "%{http_code}" https://api.groq.com/openai/v1/chat/completions -H "Authorization: Bearer $GROQ" -H "Content-Type: application/json" -d @req.json)
             echo "== groq $m: HTTP $code"; jq -c '.error.message // .choices[0].message.content' o.json | head -c 700; echo; jq -c '.usage' o.json
@@ -34,7 +34,7 @@ jobs:
       - name: Cloudflare — фото
         run: |
           for m in "@cf/qwen/qwen3.8-27b" "@cf/google/gemma-4-26b-a4b-it" "@cf/mistralai/mistral-small-3.1-24b-instruct" "@cf/meta/llama-4-scout-17b-16e-instruct" "@cf/deepseek-ai/deepseek-v4.1-flash-1017"; do
-            jq -n --arg img "data:image/jpeg;base64,$B64" '{max_tokens:800, messages:[{role:"user",content:[{type:"text",text:"Определи продукты на фото, вес порции в граммах и калории каждого. Ответ только JSON {\"items\":[{\"name\":\"\",\"grams\":0,\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
+            jq -n --rawfile img img.txt '{max_tokens:800, messages:[{role:"user",content:[{type:"text",text:"Определи продукты на фото, вес порции в граммах и калории каждого. Ответ только JSON {\"items\":[{\"name\":\"\",\"grams\":0,\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
             code=$(curl -sS -o o.json -w "%{http_code}" "https://api.cloudflare.com/client/v4/accounts/$CF_ID/ai/run/$m" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" -d @req.json)
             echo "== cf $m: HTTP $code"; jq -c '.errors[0].message // .result.response // .result.choices[0].message.content // .result' o.json | head -c 700; echo
           done
