@@ -1,5 +1,6 @@
 // ARISE — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
+import { searchFoods, gramsFromText } from "./foods.js";
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -454,7 +455,7 @@ function renderStatus(P) {
     ${questsWin(P, td)}
     <div class="grid2">
       <button class="btn block" data-act="photo">📷 Фото еды</button>
-      <button class="btn block violet" data-act="manual">✎ Вручную</button>
+      <button class="btn block violet" data-act="manual">✎ По названию</button>
     </div>
     <button class="btn block mt" data-act="workout">⚔ Тренировка Системы</button>
     ${planWin(t)}
@@ -544,6 +545,7 @@ function renderHunter(P) {
   $app.innerHTML = `
     <div class="screen-title"><h1>Охотник</h1><button class="icon-btn" style="margin-left:auto" id="to-settings" aria-label="Настройки">⚙</button></div>
     ${hunterCard(P, true)}
+    ${weightWin(t)}
     <div class="win"><div class="win-h">Характеристики</div>
       <div class="stats">${STATS.map(([k, n, d]) => `<div class="stat"><div class="s-h"><span class="s-n">${n}</span><span class="s-v">${P.stats[k]}</span></div><div class="s-d">+1 за ${d}</div></div>`).join("")}</div>
     </div>
@@ -561,6 +563,48 @@ function renderHunter(P) {
     S.title = S.title === b.dataset.title ? null : b.dataset.title; save(); render();
   });
   document.getElementById("to-settings").onclick = () => { tab = "settings"; render(); window.scrollTo(0, 0); };
+  document.getElementById("w-add").onclick = () => {
+    const kg = r1(num(document.getElementById("w-in").value));
+    if (kg < 30 || kg > 300) return toast("Введи вес в кг", true);
+    addWeight(kg, true); render();
+  };
+}
+
+function weightWin(t) {
+  const W = S.weights;
+  const cur = W.length ? W[W.length - 1].kg : S.profile.weight, start = W.length ? W[0].kg : cur;
+  const chg = r1(cur - start), left = r1(Math.abs(cur - t.target));
+  return `<div class="win"><div class="win-h">Вес<span class="right">цель ${t.target} кг</span></div>
+    <div class="grid3 center small mb">
+      <div><div class="sys-font" style="font-size:18px;color:#fff">${cur}</div><div class="muted tiny">сейчас, кг</div></div>
+      <div><div class="sys-font" style="font-size:18px;color:${(t.goal === "gain" ? chg >= 0 : chg <= 0) ? "var(--ok)" : "var(--warn)"}">${chg > 0 ? "+" : ""}${chg}</div><div class="muted tiny">с начала</div></div>
+      <div><div class="sys-font" style="font-size:18px;color:#fff">${left}</div><div class="muted tiny">до цели, кг</div></div>
+    </div>
+    ${weightChart(t)}
+    <div class="row mt"><input class="in grow" id="w-in" inputmode="decimal" placeholder="Вес сегодня, кг">
+      <button class="btn" id="w-add">Записать</button></div>
+    <div class="tiny dim mt">Взвешивайся утром натощак, раз в 3–7 дней. Норма пересчитывается по новому весу.</div>
+  </div>`;
+}
+function weightChart(t) {
+  const W = S.weights; if (!W.length) return "";
+  const day = d => Math.round(parseD(d).getTime() / 864e5);
+  const d0 = day(W[0].date), start = W[0].kg;
+  const planDays = t.goal === "keep" || !t.rate ? 0 : Math.ceil(Math.abs(start - t.target) / t.rate * 7);
+  const dEnd = Math.max(day(today()) + 7, d0 + planDays, day(W[W.length - 1].date) + 7);
+  const ks = W.map(w => w.kg).concat([t.target, start]);
+  const lo = Math.min(...ks) - 2, hi = Math.max(...ks) + 2;
+  const X = d => 8 + (d - d0) / Math.max(1, dEnd - d0) * 284, Y = kg => 8 + (hi - kg) / (hi - lo) * 124;
+  const pts = W.map(w => `${X(day(w.date)).toFixed(1)},${Y(w.kg).toFixed(1)}`).join(" ");
+  const endLbl = planDays ? (() => { const d = new Date((d0 + planDays) * 864e5); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}`; })() : "";
+  return `<svg class="wchart" viewBox="0 0 300 140" preserveAspectRatio="none">
+    <line x1="8" x2="292" y1="${Y(t.target)}" y2="${Y(t.target)}" class="w-goal"/>
+    <text x="290" y="${Y(t.target) - 4}" text-anchor="end" class="w-lbl v">цель ${t.target}</text>
+    ${planDays ? `<line x1="${X(d0)}" y1="${Y(start)}" x2="${X(d0 + planDays)}" y2="${Y(t.target)}" class="w-plan"/>
+      <text x="${X(d0 + planDays)}" y="${Y(t.target) + 12}" text-anchor="end" class="w-lbl">план: ${endLbl}</text>` : ""}
+    <polyline points="${pts}" class="w-line"/>
+    ${W.map(w => `<circle cx="${X(day(w.date))}" cy="${Y(w.kg)}" r="2.6" class="w-dot"/>`).join("")}
+  </svg>`;
 }
 
 /* ============================ экран: Рейтинг ============================ */
@@ -674,7 +718,6 @@ function readProfile(base) {
 
 function renderSettings() {
   const p = S.profile, t = targets(), auto = calcTargets(p);
-  const lastW = S.weights.slice(-6).reverse();
   $app.innerHTML = `
     <div class="screen-title"><button class="icon-btn" id="back-hunter">‹</button><h1>Настройки</h1></div>
     ${accountWin()}
@@ -692,11 +735,6 @@ function renderSettings() {
         <label class="f">Углев.<input class="in" id="tg-c" inputmode="numeric" value="${t.c}" ${p.customTargets ? "" : "disabled"}></label>
       </div>
       ${p.customTargets ? `<button class="btn block mt" id="save-tg">Сохранить норму</button>` : `<div class="tiny muted mt">Формула Миффлина — Сан Жеора, темп ~0,75% веса в неделю, белок ${auto.goal === "lose" ? "2 г на кг целевого веса" : auto.goal === "gain" ? "1,8 г/кг" : "1,6 г/кг"}.</div>`}
-    </div>
-    <div class="win"><div class="win-h">Взвешивание</div>
-      <div class="row"><input class="in grow" id="w-in" inputmode="decimal" placeholder="Вес сегодня, кг" value="">
-        <button class="btn" id="w-add">Записать</button></div>
-      ${lastW.length ? `<div class="mt small">${lastW.map(w => `<div class="kv"><span class="muted">${humanDate(w.date)}</span><b>${w.kg} кг</b></div>`).join("")}</div>` : `<div class="tiny muted mt">Вес обновит параметры тела и пересчитает норму.</div>`}
     </div>
     <div class="win"><div class="win-h">Данные</div>
       <div class="grid2"><button class="btn ghost" id="exp">Экспорт</button><button class="btn ghost" id="imp">Импорт</button></div>
@@ -725,11 +763,6 @@ function renderSettings() {
     if (nt.kcal < 800) return toast("Норма калорий слишком мала", true);
     S.profile.targets = nt; save(); toast("Норма сохранена"); render();
   };
-  document.getElementById("w-add").onclick = () => {
-    const kg = r1(num(document.getElementById("w-in").value));
-    if (kg < 30 || kg > 300) return toast("Введите вес в кг", true);
-    addWeight(kg, true); render();
-  };
   document.getElementById("exp").onclick = exportData;
   document.getElementById("imp").onclick = () => document.getElementById("imp-file").click();
   document.getElementById("imp-file").onchange = importData;
@@ -743,6 +776,7 @@ function accountWin() {
   if (!S.player) return API_URL ? `<div class="win violet"><div class="win-h">Аккаунт</div>
     <div class="small muted mb">Ты ещё не в рейтинге.</div><button class="btn violet block" id="acc-reg">Войти в рейтинг</button></div>` : "";
   return `<div class="win violet"><div class="win-h">Аккаунт<span class="right">${esc(S.player.name)}</span></div>
+    <button class="btn ghost block mb" id="acc-rename">Сменить имя</button>
     <div class="small mb">Код восстановления — с ним ты вернёшь весь прогресс на новом телефоне. Никому не показывай.</div>
     <div class="row"><input class="in grow sys-font" id="acc-code" readonly value="••••••-••••••-••••••" style="letter-spacing:.08em">
       <button class="icon-btn" id="acc-show">👁</button><button class="icon-btn" id="acc-copy">⧉</button></div>
@@ -753,6 +787,21 @@ function bindAccount() {
   if (sh) sh.onclick = () => { const i = document.getElementById("acc-code"); i.value = i.value.startsWith("•") ? S.player.token : "••••••-••••••-••••••"; };
   const cp = document.getElementById("acc-copy");
   if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(S.player.token); toast("Код скопирован"); } catch { toast("Не удалось скопировать — нажми 👁 и перепиши", true); } };
+  const rn = document.getElementById("acc-rename");
+  if (rn) rn.onclick = () => sheet(`<h2>Сменить имя</h2>
+      <label class="f">Новое имя (видно в рейтинге)<input class="in" id="rn-name" value="${esc(S.player.name)}" maxlength="24" autocomplete="off"></label>
+      <button class="btn block mt" id="rn-go">Сохранить</button>`, (el, close) => {
+    el.querySelector("#rn-go").onclick = async () => {
+      const name = el.querySelector("#rn-name").value.trim().replace(/\s+/g, " ");
+      if (name.length < 2) return toast("Имя слишком короткое", true);
+      const btn = el.querySelector("#rn-go"); btn.disabled = true;
+      try {
+        const d = await api("rename", { token: S.player.token, name });
+        S.player.name = d.name; S.profile.name = d.name; board = null;
+        save(); close(); render(); toast("Имя изменено");
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
+  });
   const rg = document.getElementById("acc-reg");
   if (rg) rg.onclick = async () => {
     rg.disabled = true;
@@ -863,16 +912,16 @@ function openAddSheet(date = (tab === "diary" ? diaryDate : today()), meal) {
     <div class="tiny muted mb">${humanDate(date)}${meal ? " · " + mealName(meal) : ""}</div>
     <div class="add-opts">
       <button class="add-opt" data-o="photo"><span class="i">📷</span><b>Фото</b><span>Система распознает блюдо и КБЖУ</span></button>
-      <button class="add-opt" data-o="manual"><span class="i">✎</span><b>Вручную</b><span>Название, вес и калории</span></button>
+      <button class="add-opt" data-o="manual"><span class="i">✎</span><b>По названию</b><span>Название и граммы — КБЖУ посчитается</span></button>
     </div>
     ${recentList()}`, (el, close) => {
     el.querySelector("[data-o=photo]").onclick = () => { close(); startPhoto(date, meal); };
     el.querySelector("[data-o=manual]").onclick = () => { close(); openManual({ date, meal }); };
     el.querySelectorAll("[data-recent]").forEach(b => b.onclick = () => {
       const e = S.entries.find(x => x.id === b.dataset.recent); close();
-      const per = e.grams ? 100 / e.grams : 1;
-      openManual({ date, meal, name: e.name, grams: e.grams || "", mode: e.grams ? "100" : "total",
-        kcal: r1(e.kcal * per), p: r1(e.p * per), f: r1(e.f * per), c: r1(e.c * per) });
+      if (!e.grams) return openManual({ date, meal, name: e.name });
+      const m = 100 / e.grams;
+      openManual({ date, meal, sel: { name: e.name, kcal: r0(e.kcal * m), p: r1(e.p * m), f: r1(e.f * m), c: r1(e.c * m), pc: 0, last: e.grams } });
     });
   });
 }
@@ -886,45 +935,136 @@ function recentList() {
     `<div class="recent" data-recent="${e.id}"><span class="nm">${esc(e.name)}</span><span class="kc">${e.grams ? r0(e.grams) + " г · " : ""}${r0(e.kcal)} ккал</span><span class="muted">›</span></div>`).join("")}`;
 }
 
-/* ---------- ручной ввод ---------- */
+/* ---------- ввод по названию и граммам ---------- */
+function myFoods(q) {
+  // свои прошлые записи как подсказки (на 100 г)
+  const words = q.toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(w => w && !/^\d/.test(w));
+  if (!words.length) return [];
+  const seen = new Set(), out = [];
+  for (const e of [...S.entries].reverse()) {
+    const k = e.name.toLowerCase().replace(/ё/g, "е");
+    if (seen.has(k) || !e.grams) continue; seen.add(k);
+    if (!words.every(w => k.split(/\s+/).some(t => t.startsWith(w)))) continue;
+    const m = 100 / e.grams;
+    out.push({ name: e.name, kcal: r0(e.kcal * m), p: r1(e.p * m), f: r1(e.f * m), c: r1(e.c * m), pc: 0, mine: true, last: e.grams });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
 function openManual(o = {}) {
-  let mode = o.mode || "100";
-  sheet(`<h2>Ручной ввод</h2>
-    <label class="f">Название<input class="in" id="m-name" value="${esc(o.name || "")}" placeholder="Например, овсянка на молоке"></label>
-    <div class="grid2 mt"><label class="f">Вес порции, г<input class="in" id="m-g" inputmode="decimal" value="${o.grams ?? ""}" placeholder="г"></label>
-      <label class="f">Приём пищи${mealSelect("m-meal", o.meal || mealByTime())}</label></div>
-    <div class="seg mt" id="m-mode"><button data-m="100">На 100 г</button><button data-m="total">На всю порцию</button></div>
-    <div class="grid4 mt">
-      <label class="f">Ккал<input class="in" id="m-k" inputmode="decimal" value="${o.kcal ?? ""}"></label>
-      <label class="f">Белки<input class="in" id="m-p" inputmode="decimal" value="${o.p ?? ""}"></label>
-      <label class="f">Жиры<input class="in" id="m-f" inputmode="decimal" value="${o.f ?? ""}"></label>
-      <label class="f">Углев.<input class="in" id="m-c" inputmode="decimal" value="${o.c ?? ""}"></label>
-    </div>
-    <div class="total-line"><span class="muted small" id="m-sum"></span><b id="m-tot">0 ккал</b></div>
-    <button class="btn block" id="m-save">Записать</button>`, (el, close) => {
+  let sel = o.sel || null;
+  sheet(`<h2>Что съел?</h2>
+    <input class="in" id="m-q" value="${esc(o.sel ? o.sel.name : o.name || "")}" placeholder="Например: гречка 150 г, плов, яблоко" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div id="m-sugg"></div>
+    <div id="m-body"></div>`, (el, close) => {
     const g = id => el.querySelector("#" + id);
-    const calc = () => {
-      const grams = num(g("m-g").value), f = mode === "100" ? grams / 100 : 1;
-      return { grams, kcal: num(g("m-k").value) * f, p: num(g("m-p").value) * f, f: num(g("m-f").value) * f, c: num(g("m-c").value) * f };
+    const date = o.date || today();
+    const meal0 = o.meal || mealByTime();
+
+    const showSugg = () => {
+      const q = g("m-q").value.trim();
+      if (sel && q === sel.name) { g("m-sugg").innerHTML = ""; return; }
+      sel = null; g("m-body").innerHTML = "";
+      if (q.length < 2) { g("m-sugg").innerHTML = `<div class="tiny muted mt">Начни вводить название — Система подскажет продукт и посчитает КБЖУ по граммам.</div>`; return; }
+      const list = [...myFoods(q), ...searchFoods(q, 8)].slice(0, 9);
+      g("m-sugg").innerHTML = `${list.map((f, i) => `<div class="recent" data-s="${i}">
+          <span class="nm">${esc(f.name)}${f.mine ? ' <span class="tiny" style="color:var(--violet2)">мой</span>' : ""}</span>
+          <span class="kc">${f.kcal} ккал/100 г</span><span class="muted">›</span></div>`).join("")}
+        <div class="grid2 mt">
+          ${API_URL && S.player ? `<button class="btn violet" id="m-ai">🤖 Рассчитать ИИ</button>` : ""}
+          <button class="btn ghost" id="m-self" ${API_URL && S.player ? "" : 'style="grid-column:span 2"'}>✎ Ввести КБЖУ самому</button>
+        </div>
+        <div class="tiny dim mt">${list.length ? "Нет нужного? " : "В базе не нашлось. "}ИИ посчитает по описанию: «гречка с маслом 150 г».</div>`;
+      el.querySelectorAll("[data-s]").forEach(r => r.onclick = () => pick(list[+r.dataset.s]));
+      const ai = g("m-ai"); if (ai) ai.onclick = () => runAI(q);
+      g("m-self").onclick = () => selfForm(q);
     };
-    const upd = () => {
-      el.querySelectorAll("#m-mode button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
-      const v = calc();
-      g("m-tot").textContent = `${r0(v.kcal)} ккал`;
-      g("m-sum").textContent = mode === "100" && !v.grams ? "Укажи вес порции" : `Б ${r1(v.p)} · Ж ${r1(v.f)} · У ${r1(v.c)}`;
+
+    const pick = f => {
+      sel = f;
+      const typed = gramsFromText(g("m-q").value);
+      g("m-q").value = f.name; g("m-sugg").innerHTML = "";
+      const grams0 = typed || f.last || f.pc || 100;
+      g("m-body").innerHTML = `
+        <div class="grid2 mt"><label class="f">Сколько грамм<input class="in" id="m-g" inputmode="decimal" value="${grams0}"></label>
+          <label class="f">Приём пищи${mealSelect("m-meal", meal0)}</label></div>
+        ${f.pc ? `<div class="row mt" style="gap:6px;flex-wrap:wrap">${[1, 2, 3].map(n => `<button class="btn ghost sm" data-pc="${n}">${n} шт · ${f.pc * n} г</button>`).join("")}</div>` : ""}
+        <div class="win mt" style="margin-bottom:10px">
+          <div class="total-line" style="border:0;margin:0;padding:0"><span class="muted small" id="m-sum"></span><b id="m-tot"></b></div>
+          <div class="tiny dim mt" id="m-per">На 100 г: ${f.kcal} ккал · Б ${f.p} · Ж ${f.f} · У ${f.c}</div>
+        </div>
+        <div class="grid2"><button class="btn ghost" id="m-edit">Изменить КБЖУ</button><button class="btn" id="m-save">Записать</button></div>`;
+      const upd = () => {
+        const k = num(g("m-g").value) / 100;
+        g("m-tot").textContent = `${r0(sel.kcal * k)} ккал`;
+        g("m-sum").textContent = `Б ${r1(sel.p * k)} · Ж ${r1(sel.f * k)} · У ${r1(sel.c * k)}`;
+      };
+      g("m-g").oninput = upd; upd();
+      el.querySelectorAll("[data-pc]").forEach(b => b.onclick = () => { g("m-g").value = f.pc * +b.dataset.pc; upd(); });
+      g("m-edit").onclick = () => selfForm(sel.name, { grams: num(g("m-g").value), kcal: sel.kcal, p: sel.p, f: sel.f, c: sel.c });
+      g("m-save").onclick = () => {
+        const grams = num(g("m-g").value), k = grams / 100;
+        if (grams <= 0) return toast("Укажи граммы", true);
+        addEntries([{ name: sel.name, grams, kcal: sel.kcal * k, p: sel.p * k, f: sel.f * k, c: sel.c * k, source: "manual" }], date, g("m-meal").value);
+        close();
+      };
+      setTimeout(() => { const i = g("m-g"); if (i) { i.focus(); i.select(); } }, 200);
     };
-    el.querySelectorAll("#m-mode button").forEach(b => b.onclick = () => { mode = b.dataset.m; upd(); });
-    el.querySelectorAll("input").forEach(i => i.oninput = upd);
-    upd();
-    g("m-save").onclick = () => {
-      const name = g("m-name").value.trim(); const v = calc();
-      if (!name) return toast("Введите название", true);
-      if (mode === "100" && !v.grams) return toast("Укажите вес порции", true);
-      if (v.kcal <= 0) return toast("Укажите калории", true);
-      addEntries([{ name, grams: v.grams, kcal: v.kcal, p: v.p, f: v.f, c: v.c, source: "manual" }], o.date || today(), g("m-meal").value);
-      close();
+
+    const runAI = async q => {
+      g("m-sugg").innerHTML = ""; sel = null;
+      g("m-body").innerHTML = `<div class="center mt"><span class="spinner"></span> <span class="muted small">Система считает КБЖУ…</span></div>`;
+      try {
+        const res = normalizeAI(await api("estimate", { token: S.player.token, text: q }));
+        if (!res.is_food || !res.items.length) { g("m-body").innerHTML = `<div class="small muted mt">Не похоже на еду. Попробуй описать иначе.</div>`; return; }
+        renderAIItems(g("m-body"), res, meal0, { source: "text", date, onCancel: close, onSaved: close });
+      } catch (e) {
+        g("m-body").innerHTML = `<div class="small bad mt">${esc(e.message)}</div>`;
+      }
     };
-    if (!o.name) setTimeout(() => g("m-name").focus(), 250);
+
+    const selfForm = (name, v = {}) => {
+      g("m-sugg").innerHTML = ""; sel = { name };
+      let mode = "100";
+      g("m-q").value = name.replace(/\s*\d+(?:[.,]\d+)?\s*(?:грамм|гр|г|мл|ml|g)?(?=\s|$)/i, "").trim() || name;
+      sel.name = g("m-q").value;
+      g("m-body").innerHTML = `
+        <div class="grid2 mt"><label class="f">Вес порции, г<input class="in" id="s-g" inputmode="decimal" value="${v.grams || gramsFromText(name) || ""}"></label>
+          <label class="f">Приём пищи${mealSelect("s-meal", meal0)}</label></div>
+        <div class="seg mt" id="s-mode"><button data-m="100">На 100 г</button><button data-m="total">На всю порцию</button></div>
+        <div class="grid4 mt">
+          <label class="f">Ккал<input class="in" id="s-k" inputmode="decimal" value="${v.kcal ?? ""}"></label>
+          <label class="f">Белки<input class="in" id="s-p" inputmode="decimal" value="${v.p ?? ""}"></label>
+          <label class="f">Жиры<input class="in" id="s-f" inputmode="decimal" value="${v.f ?? ""}"></label>
+          <label class="f">Углев.<input class="in" id="s-c" inputmode="decimal" value="${v.c ?? ""}"></label>
+        </div>
+        <div class="total-line"><span class="muted small" id="s-sum"></span><b id="s-tot">0 ккал</b></div>
+        <button class="btn block" id="s-save">Записать</button>`;
+      const calc = () => {
+        const grams = num(g("s-g").value), f = mode === "100" ? grams / 100 : 1;
+        return { grams, kcal: num(g("s-k").value) * f, p: num(g("s-p").value) * f, f: num(g("s-f").value) * f, c: num(g("s-c").value) * f };
+      };
+      const upd = () => {
+        el.querySelectorAll("#s-mode button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+        const x = calc();
+        g("s-tot").textContent = `${r0(x.kcal)} ккал`;
+        g("s-sum").textContent = mode === "100" && !x.grams ? "Укажи вес порции" : `Б ${r1(x.p)} · Ж ${r1(x.f)} · У ${r1(x.c)}`;
+      };
+      el.querySelectorAll("#s-mode button").forEach(b => b.onclick = () => { mode = b.dataset.m; upd(); });
+      g("m-body").querySelectorAll("input").forEach(i => i.oninput = upd);
+      upd();
+      g("s-save").onclick = () => {
+        const nm = g("m-q").value.trim(), x = calc();
+        if (!nm) return toast("Введи название", true);
+        if (mode === "100" && !x.grams) return toast("Укажи вес порции", true);
+        if (x.kcal <= 0) return toast("Укажи калории", true);
+        addEntries([{ name: nm, grams: x.grams, kcal: x.kcal, p: x.p, f: x.f, c: x.c, source: "manual" }], date, g("s-meal").value);
+        close();
+      };
+    };
+
+    g("m-q").oninput = showSugg;
+    if (o.sel) pick(o.sel); else { showSugg(); setTimeout(() => g("m-q").focus(), 250); }
   });
 }
 
@@ -1022,8 +1162,65 @@ function normalizeAI(d) {
   }));
   return d;
 }
+function renderAIItems(box0, res, meal, o) {
+  const items = res.items.map(it => ({ ...it, on: true, base: { ...it } }));
+  const conf = { high: "точно", medium: "примерно", low: "неуверенно" };
+  box0.innerHTML = `
+    <div class="win mt"><div class="win-h">${esc(res.summary || "Результат")}</div>
+      ${res.notes ? `<div class="tiny muted mb">${esc(res.notes)}</div>` : ""}
+      <div class="ai-items">${items.map((it, i) => `<div class="item" data-i="${i}">
+        <div class="top"><input type="checkbox" checked data-on="${i}"><input class="nm-in" data-name="${i}" value="${esc(it.name)}">
+          <span class="conf ${it.confidence}">${conf[it.confidence]}</span></div>
+        <div class="nums">
+          <label>Вес, г<input inputmode="decimal" data-g="${i}" value="${it.grams}"></label>
+          <label>Ккал<input inputmode="decimal" data-k="${i}" value="${it.kcal}"></label>
+          <label>Б<input inputmode="decimal" data-p="${i}" value="${it.protein}"></label>
+          <label>Ж<input inputmode="decimal" data-f="${i}" value="${it.fat}"></label>
+          <label>У<input inputmode="decimal" data-c="${i}" value="${it.carbs}"></label>
+        </div></div>`).join("")}</div>
+      <div class="total-line"><span class="muted small ai-sum"></span><b class="ai-tot"></b></div>
+      <div class="tiny dim">Подправь вес, если знаешь точнее — КБЖУ пересчитаются.</div>
+    </div>
+    <label class="f">Приём пищи${mealSelect("ai-meal", meal)}</label>
+    <div class="grid2 mt"><button class="btn ghost ai-cancel">Отмена</button><button class="btn ai-save">Записать</button></div>`;
+  const q = sel => box0.querySelector(sel);
+  const tot = () => {
+    const s2 = items.filter(i => i.on).reduce((a, i) => ({ k: a.k + i.kcal, p: a.p + i.protein, f: a.f + i.fat, c: a.c + i.carbs }), { k: 0, p: 0, f: 0, c: 0 });
+    q(".ai-tot").textContent = `${r0(s2.k)} ккал`; q(".ai-sum").textContent = `Б ${r1(s2.p)} · Ж ${r1(s2.f)} · У ${r1(s2.c)}`;
+  };
+  const box = q(".ai-items");
+  box.addEventListener("input", ev => {
+    const t = ev.target, d = t.dataset;
+    if (d.on !== undefined) { items[+d.on].on = t.checked; t.closest(".item").classList.toggle("off", !t.checked); }
+    else if (d.name !== undefined) items[+d.name].name = t.value;
+    else if (d.g !== undefined) {
+      const it = items[+d.g], ng = num(t.value), b = it.base; it.grams = ng;
+      if (b.grams > 0) {
+        const f = ng / b.grams;
+        it.kcal = r0(b.kcal * f); it.protein = r1(b.protein * f); it.fat = r1(b.fat * f); it.carbs = r1(b.carbs * f);
+        const row = t.closest(".item");
+        row.querySelector("[data-k]").value = it.kcal; row.querySelector("[data-p]").value = it.protein;
+        row.querySelector("[data-f]").value = it.fat; row.querySelector("[data-c]").value = it.carbs;
+      }
+    }
+    else if (d.k !== undefined) items[+d.k].kcal = num(t.value);
+    else if (d.p !== undefined) items[+d.p].protein = num(t.value);
+    else if (d.f !== undefined) items[+d.f].fat = num(t.value);
+    else if (d.c !== undefined) items[+d.c].carbs = num(t.value);
+    tot();
+  });
+  box.addEventListener("change", ev => { if (ev.target.dataset.on !== undefined) tot(); });
+  tot();
+  q(".ai-cancel").onclick = o.onCancel;
+  q(".ai-save").onclick = () => {
+    const on = items.filter(i => i.on && i.kcal > 0);
+    if (!on.length) return toast("Ничего не выбрано", true);
+    addEntries(on.map(i => ({ name: i.name.trim() || "продукт", grams: i.grams, kcal: i.kcal, p: i.protein, f: i.fat, c: i.carbs, source: o.source })),
+      o.date, q("#ai-meal").value, o.thumb);
+    o.onSaved();
+  };
+}
 function openPhotoSheet(dataUrl, thumb, ctx) {
-  let items = [];
   sheet(`<h2>Анализ еды</h2>
     <div class="scan" id="p-scan"><img class="photo-prev" src="${dataUrl}"></div>
     <div id="p-body">
@@ -1047,7 +1244,6 @@ function openPhotoSheet(dataUrl, thumb, ctx) {
             <button class="btn block ghost" id="p-close">Закрыть</button>`;
           g("p-close").onclick = close; return;
         }
-        items = res.items.map(it => ({ ...it, on: true, base: { ...it } }));
         showResult(res, meal);
       } catch (e) {
         el.querySelector("#p-scan").classList.remove("scan");
@@ -1058,61 +1254,7 @@ function openPhotoSheet(dataUrl, thumb, ctx) {
       }
     };
     const showResult = (res, meal) => {
-      const conf = { high: "точно", medium: "примерно", low: "неуверенно" };
-      g("p-body").innerHTML = `
-        <div class="win mt"><div class="win-h">${esc(res.summary || "Результат")}</div>
-          ${res.notes ? `<div class="tiny muted mb">${esc(res.notes)}</div>` : ""}
-          <div id="p-items">${items.map((it, i) => `<div class="item" data-i="${i}">
-            <div class="top"><input type="checkbox" checked data-on="${i}"><input class="nm-in" data-name="${i}" value="${esc(it.name)}">
-              <span class="conf ${it.confidence}">${conf[it.confidence]}</span></div>
-            <div class="nums">
-              <label>Вес, г<input inputmode="decimal" data-g="${i}" value="${it.grams}"></label>
-              <label>Ккал<input inputmode="decimal" data-k="${i}" value="${it.kcal}"></label>
-              <label>Б<input inputmode="decimal" data-p="${i}" value="${it.protein}"></label>
-              <label>Ж<input inputmode="decimal" data-f="${i}" value="${it.fat}"></label>
-              <label>У<input inputmode="decimal" data-c="${i}" value="${it.carbs}"></label>
-            </div></div>`).join("")}</div>
-          <div class="total-line"><span class="muted small" id="p-sum"></span><b id="p-tot"></b></div>
-          <div class="tiny dim">Подправь вес, если знаешь точнее — КБЖУ пересчитаются.</div>
-        </div>
-        <label class="f">Приём пищи${mealSelect("p-meal2", meal)}</label>
-        <div class="grid2 mt"><button class="btn ghost" id="p-cancel">Отмена</button><button class="btn" id="p-save">Записать</button></div>`;
-      const tot = () => {
-        const on = items.filter(i => i.on);
-        const s = on.reduce((a, i) => ({ k: a.k + i.kcal, p: a.p + i.protein, f: a.f + i.fat, c: a.c + i.carbs }), { k: 0, p: 0, f: 0, c: 0 });
-        g("p-tot").textContent = `${r0(s.k)} ккал`; g("p-sum").textContent = `Б ${r1(s.p)} · Ж ${r1(s.f)} · У ${r1(s.c)}`;
-      };
-      const box = g("p-items");
-      box.addEventListener("input", ev => {
-        const t = ev.target, d = t.dataset;
-        if (d.on !== undefined) { items[+d.on].on = t.checked; t.closest(".item").classList.toggle("off", !t.checked); }
-        else if (d.name !== undefined) items[+d.name].name = t.value;
-        else if (d.g !== undefined) {
-          const it = items[+d.g], ng = num(t.value), b = it.base; it.grams = ng;
-          if (b.grams > 0) {
-            const f = ng / b.grams;
-            it.kcal = r0(b.kcal * f); it.protein = r1(b.protein * f); it.fat = r1(b.fat * f); it.carbs = r1(b.carbs * f);
-            const row = t.closest(".item");
-            row.querySelector("[data-k]").value = it.kcal; row.querySelector("[data-p]").value = it.protein;
-            row.querySelector("[data-f]").value = it.fat; row.querySelector("[data-c]").value = it.carbs;
-          }
-        }
-        else if (d.k !== undefined) items[+d.k].kcal = num(t.value);
-        else if (d.p !== undefined) items[+d.p].protein = num(t.value);
-        else if (d.f !== undefined) items[+d.f].fat = num(t.value);
-        else if (d.c !== undefined) items[+d.c].carbs = num(t.value);
-        tot();
-      });
-      box.addEventListener("change", ev => { if (ev.target.dataset.on !== undefined) box.dispatchEvent(new Event("input")); });
-      tot();
-      g("p-cancel").onclick = close;
-      g("p-save").onclick = () => {
-        const on = items.filter(i => i.on && i.kcal > 0);
-        if (!on.length) return toast("Ничего не выбрано", true);
-        addEntries(on.map(i => ({ name: i.name.trim() || "продукт", grams: i.grams, kcal: i.kcal, p: i.protein, f: i.fat, c: i.carbs, source: "photo" })),
-          ctx.date, g("p-meal2").value, thumb);
-        close();
-      };
+      renderAIItems(g("p-body"), res, meal, { source: "photo", thumb, date: ctx.date, onCancel: close, onSaved: close });
     };
     g("p-go").onclick = go;
   });

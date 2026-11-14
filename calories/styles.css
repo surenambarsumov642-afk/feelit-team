@@ -299,3 +299,12 @@ a{color:var(--blue2)}
 .lb-r{text-align:right;font-size:13px;white-space:nowrap}
 .rank-mini{width:28px;height:28px;flex:none;display:grid;place-items:center;font-family:"Russo One",sans-serif;font-size:14px;border:1.5px solid currentColor;border-radius:4px;box-shadow:0 0 8px currentColor}
 .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- график веса ---------- */
+.wchart{width:100%;height:150px;display:block;overflow:visible}
+.wchart .w-goal{stroke:var(--violet);stroke-dasharray:4 4;stroke-width:1}
+.wchart .w-plan{stroke:rgba(127,211,255,.45);stroke-dasharray:2 4;stroke-width:1.4}
+.wchart .w-line{fill:none;stroke:var(--cyan);stroke-width:2;filter:drop-shadow(0 0 4px rgba(95,240,255,.7))}
+.wchart .w-dot{fill:#fff;stroke:var(--blue);stroke-width:1.5}
+.wchart .w-lbl{fill:var(--muted);font-size:9px;font-family:"Exo 2",sans-serif}
+.wchart .w-lbl.v{fill:var(--violet2)}

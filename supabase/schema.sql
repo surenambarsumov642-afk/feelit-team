@@ -23,3 +23,7 @@ create table if not exists public.players (
 create unique index if not exists players_name_lower on public.players (lower(name));
 create index if not exists players_xp on public.players (xp desc);
 alter table public.players enable row level security;
+
+-- этап 1: лимит текстовых расчётов КБЖУ
+alter table public.players add column if not exists text_day date;
+alter table public.players add column if not exists text_count int not null default 0;
