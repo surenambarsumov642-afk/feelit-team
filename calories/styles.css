@@ -490,3 +490,94 @@ a{color:var(--blue2)}
   border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45),0 0 24px rgba(95,240,255,.5);pointer-events:none}
 .scan-frame i{position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ff3b5c;box-shadow:0 0 10px #ff3b5c;animation:scanline 1.6s ease-in-out infinite alternate}
 @keyframes scanline{from{top:12%}to{top:88%}}
+
+/* ============ экран входа ============ */
+.intro{position:fixed;inset:0;z-index:200;background:#02040a;display:grid;place-items:center;overflow:hidden;color:#dbe8ff;cursor:pointer}
+.intro-grid{position:absolute;inset:-50%;background-image:linear-gradient(rgba(58,180,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(58,180,255,.07) 1px,transparent 1px);
+  background-size:40px 40px;transform:perspective(500px) rotateX(60deg);animation:gridmove 6s linear infinite;opacity:.6}
+@keyframes gridmove{to{background-position:0 40px}}
+.intro-glow{position:absolute;width:140vmax;height:140vmax;left:50%;top:50%;transform:translate(-50%,-50%) scale(.2);border-radius:50%;
+  background:radial-gradient(circle,rgba(58,180,255,.35),rgba(143,107,255,.15) 30%,transparent 60%);opacity:0;transition:transform 1.4s cubic-bezier(.2,.8,.2,1),opacity 1.2s}
+.intro.lit .intro-glow{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.intro-in{position:relative;width:min(88vw,420px);text-align:center}
+.intro-sys{font-family:"Russo One",sans-serif;font-size:30px;letter-spacing:.35em;color:#7fd3ff;text-shadow:0 0 18px #3ab4ff,0 0 40px #3ab4ff;position:relative;animation:sysglow 2.4s ease-in-out infinite}
+.intro-sys::before,.intro-sys::after{content:attr(data-text);position:absolute;inset:0;opacity:.7}
+.intro-sys::before{color:#ff3b8d;animation:glitch1 2.2s infinite steps(1)}
+.intro-sys::after{color:#5ff0ff;animation:glitch2 2.2s infinite steps(1)}
+@keyframes glitch1{0%,88%,100%{transform:none;clip-path:inset(0 0 100% 0)}90%{transform:translate(-4px,1px);clip-path:inset(20% 0 50% 0)}94%{transform:translate(3px,-1px);clip-path:inset(60% 0 10% 0)}}
+@keyframes glitch2{0%,86%,100%{transform:none;clip-path:inset(0 0 100% 0)}88%{transform:translate(4px,0);clip-path:inset(10% 0 70% 0)}92%{transform:translate(-3px,1px);clip-path:inset(45% 0 30% 0)}}
+@keyframes sysglow{50%{text-shadow:0 0 26px #5ff0ff,0 0 60px #3ab4ff}}
+.intro-boot{margin-top:22px;text-align:left;font-size:12.5px;letter-spacing:.05em;color:#8fb6e6;min-height:84px;font-family:ui-monospace,Menlo,monospace}
+.intro-boot div{animation:fadeup .25s ease both}
+.intro-boot .ok{color:#5ff0ff}
+.intro-bar{height:3px;background:rgba(80,170,255,.15);margin-top:10px;overflow:hidden}
+.intro-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3ab4ff,#5ff0ff);box-shadow:0 0 12px #5ff0ff;transition:width .3s}
+.intro-q{margin-top:30px;min-height:96px;font-family:"Russo One",sans-serif;font-size:19px;line-height:1.45;letter-spacing:.03em;color:#fff;
+  white-space:pre-line;text-shadow:0 0 14px rgba(95,240,255,.55)}
+.intro-p{margin-top:16px;font-size:13px;letter-spacing:.12em;color:#8fb6e6;opacity:0;transition:opacity .6s}
+.intro-p b{color:#fff}.intro-p .rk{color:#5ff0ff;text-shadow:0 0 10px #3ab4ff}
+.intro-rn{margin-top:4px;color:#b79cff;letter-spacing:.2em;font-size:12px;text-transform:uppercase}
+.intro-go{margin-top:26px;appearance:none;border:1px solid #7fd3ff;background:rgba(58,180,255,.12);color:#fff;font-family:"Russo One",sans-serif;
+  letter-spacing:.3em;text-transform:uppercase;font-size:15px;padding:15px 34px;border-radius:3px;opacity:0;transform:translateY(10px);
+  transition:opacity .5s,transform .5s;pointer-events:none;box-shadow:0 0 22px rgba(58,180,255,.5),inset 0 0 18px rgba(58,180,255,.25)}
+.intro.ready .intro-p{opacity:1}
+.intro.ready .intro-go{opacity:1;transform:none;pointer-events:auto;animation:gopulse 1.6s ease-in-out infinite .5s}
+@keyframes gopulse{50%{box-shadow:0 0 40px rgba(95,240,255,.9),inset 0 0 26px rgba(95,240,255,.4)}}
+.intro-skip{margin-top:14px;font-size:11px;color:#4f6b8f;letter-spacing:.1em}
+.intro.ready .intro-skip{visibility:hidden}
+.intro.out{animation:introOut .9s ease forwards;pointer-events:none}
+.intro.out .intro-in{animation:introZoom .9s ease forwards}
+@keyframes introOut{0%{background:#02040a}15%{background:#bfefff}100%{background:transparent;opacity:0}}
+@keyframes introZoom{to{transform:scale(1.6);opacity:0;filter:blur(6px)}}
+
+/* ============ окна Системы: эффекты ============ */
+.sys-bg.out{animation:fade .18s ease reverse forwards}
+.sys .body p{margin:0 0 10px;animation:fadeup .45s ease both}
+.sys .body p:last-child{margin-bottom:0}
+.sys-ic{font-size:44px;line-height:1;margin:6px 0 10px;filter:drop-shadow(0 0 14px var(--fx));animation:icpop .7s cubic-bezier(.2,1.6,.4,1) both .1s}
+@keyframes icpop{from{transform:scale(0) rotate(-30deg);opacity:0}to{transform:none;opacity:1}}
+.fx-flash{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%,var(--fx),transparent 60%);opacity:0;animation:flash .7s ease-out}
+.fx-parts{position:fixed;left:50%;top:50%;width:0;height:0;pointer-events:none}
+.fx-parts i{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--fx);box-shadow:0 0 10px var(--fx),0 0 4px #fff;
+  animation:burst var(--t) cubic-bezier(.1,.8,.3,1) forwards}
+@keyframes burst{from{transform:rotate(var(--a)) translateY(0) scale(1.4);opacity:1}to{transform:rotate(var(--a)) translateY(calc(-1 * var(--d) - 60px)) scale(.2);opacity:0}}
+.fx-rays{position:fixed;left:50%;top:50%;width:160vmax;height:160vmax;transform:translate(-50%,-50%);pointer-events:none;opacity:.55;
+  background:repeating-conic-gradient(from 0deg,transparent 0deg 9deg,color-mix(in srgb,var(--fx) 30%,transparent) 10deg 14deg,transparent 15deg 24deg);
+  -webkit-mask:radial-gradient(circle,#000 0,transparent 55%);mask:radial-gradient(circle,#000 0,transparent 55%);animation:rays 14s linear infinite,fade .8s ease}
+@keyframes rays{to{transform:translate(-50%,-50%) rotate(360deg)}}
+.sys-bg.big .sys{animation:sysBig .7s cubic-bezier(.2,1.5,.35,1)}
+@keyframes sysBig{0%{transform:scale(.4);opacity:0;filter:brightness(3)}60%{filter:brightness(1.6)}100%{transform:none;opacity:1;filter:none}}
+.sys-bg.big .head{font-size:30px;animation:headin .8s ease both .15s}
+@keyframes headin{from{letter-spacing:.6em;opacity:0;filter:blur(6px)}to{letter-spacing:.06em;opacity:1;filter:none}}
+.sys.rank{border-color:#ffc24a;box-shadow:0 0 50px rgba(255,194,74,.55),inset 0 0 40px rgba(255,194,74,.18)}
+.sys.rank .tag{color:#ffd77a;border-color:#ffc24a;text-shadow:0 0 12px #ffc24a}
+.sys.rank .head{color:#fff3c9;font-size:40px!important;text-shadow:0 0 20px #ffc24a,0 0 50px #ff9a2a}
+.sys.levelup{border-color:var(--cyan);box-shadow:0 0 44px rgba(95,240,255,.5),inset 0 0 30px rgba(95,240,255,.15)}
+.sys.levelup .head{font-size:36px!important}
+.sys[class*="rar-"]{border-color:var(--fx);box-shadow:0 0 40px color-mix(in srgb,var(--fx) 60%,transparent),inset 0 0 30px color-mix(in srgb,var(--fx) 20%,transparent)}
+.sys[class*="rar-"] .tag{color:var(--fx);border-color:var(--fx);text-shadow:0 0 10px var(--fx)}
+.sys[class*="rar-"] .head{text-shadow:0 0 14px var(--fx)}
+.sys.rar-legend,.sys.rar-myth{overflow:hidden}
+.sys.rar-legend::after,.sys.rar-myth::after{content:"";position:absolute;top:0;bottom:0;left:-60%;right:auto;width:40%;height:auto;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);animation:shine 2.4s ease-in-out infinite .6s}
+.sys.quest .tag{color:var(--cyan)}
+.sys.penalty{animation:sysIn .35s cubic-bezier(.2,1.4,.4,1),glitchbox .5s steps(2) .35s}
+@keyframes glitchbox{25%{transform:translate(-3px,1px);filter:hue-rotate(20deg)}50%{transform:translate(3px,-1px)}75%{transform:translate(-2px,0)}}
+body.shake #app,body.shake .sys{animation:bigshake .6s cubic-bezier(.36,.07,.19,.97)}
+@keyframes bigshake{10%,90%{transform:translate(-2px,1px)}20%,80%{transform:translate(4px,-2px)}30%,50%,70%{transform:translate(-7px,2px)}40%,60%{transform:translate(7px,-1px)}}
+
+/* ============ редкость титулов ============ */
+.ach.got .ic{border-color:var(--rc);box-shadow:0 0 12px color-mix(in srgb,var(--rc) 55%,transparent)}
+.ach.got .an{color:var(--rc)}
+.ach .rar-l{color:var(--rc);opacity:.85}
+.ach.got.rar-legend .ic,.ach.got.rar-myth .ic{animation:rarpulse 2.2s ease-in-out infinite}
+@keyframes rarpulse{50%{box-shadow:0 0 22px var(--rc)}}
+
+/* ============ слово дня и переходы ============ */
+.daily-word{margin:0 0 14px;padding:12px 14px;border-left:2px solid var(--violet);background:linear-gradient(90deg,rgba(143,107,255,.14),transparent);
+  font-family:"Russo One",sans-serif;font-size:14.5px;letter-spacing:.03em;color:#fff;text-shadow:0 0 12px rgba(183,156,255,.45)}
+.daily-word .tag-sys{font-size:10px;padding:2px 8px;margin-bottom:7px}
+.daily-word div{animation:fadeup .7s ease both .15s}
+#app.enter > *{animation:fadeup .35s ease both}
+#app.enter > *:nth-child(2){animation-delay:.04s}#app.enter > *:nth-child(3){animation-delay:.08s}#app.enter > *:nth-child(4){animation-delay:.12s}
+.sys.rank .btn,.sys[class*="rar-"] .btn{border-color:var(--fx);color:#fff;background:color-mix(in srgb,var(--fx) 16%,transparent);box-shadow:0 0 18px color-mix(in srgb,var(--fx) 50%,transparent)}
