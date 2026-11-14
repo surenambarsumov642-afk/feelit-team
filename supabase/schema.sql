@@ -31,3 +31,55 @@ alter table public.players add column if not exists text_count int not null defa
 -- этап 2: лимит запросов к наставнику навыков
 alter table public.players add column if not exists skill_day date;
 alter table public.players add column if not exists skill_count int not null default 0;
+
+-- этап 3: история по дням (для сезонов и дуэлей), лента, дуэли, Врата
+create table if not exists public.player_days (
+  player_id uuid not null references public.players(id) on delete cascade,
+  day date not null,
+  xp int not null default 0,
+  norm boolean not null default false,
+  workout boolean not null default false,
+  quests int not null default 0,
+  primary key (player_id, day)
+);
+alter table public.player_days enable row level security;
+
+create table if not exists public.events (
+  id bigserial primary key,
+  player_id uuid not null references public.players(id) on delete cascade,
+  kind text not null,
+  text text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists events_time on public.events (created_at desc);
+alter table public.events enable row level security;
+
+create table if not exists public.duels (
+  id uuid primary key default gen_random_uuid(),
+  a uuid not null references public.players(id) on delete cascade,
+  b uuid not null references public.players(id) on delete cascade,
+  metric text not null,
+  stake int not null default 100,
+  start_day date,
+  end_day date,
+  status text not null default 'pending',
+  winner uuid,
+  created_at timestamptz not null default now()
+);
+alter table public.duels enable row level security;
+
+create table if not exists public.gate_runs (
+  gate_key text not null,
+  player_id uuid not null references public.players(id) on delete cascade,
+  status text not null default 'active',
+  progress int not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (gate_key, player_id)
+);
+alter table public.gate_runs enable row level security;
+
+create or replace function public.season_board(p_from date, p_to date)
+returns table (player_id uuid, xp bigint)
+language sql stable as $$
+  select player_id, sum(xp)::bigint from public.player_days where day between p_from and p_to group by player_id
+$$;

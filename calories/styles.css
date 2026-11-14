@@ -415,3 +415,26 @@ a{color:var(--blue2)}
 .sk-hero .gate{width:120px;height:120px;margin:0;--r:-52px;flex:none}
 .sk-hero .g-ring.r2{--r:-36px}.sk-hero .g-ring span{font-size:9px}
 .sk-hero-t{flex:1;text-align:left}
+
+/* ---------- этап 3: Врата, сезоны, лента, дуэли ---------- */
+.gate-row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(143,107,255,.15)}
+.gate-row:last-child{border-bottom:0}
+.gate-row.done{opacity:.75}.gate-row.failed{opacity:.55}
+.gate-row .gr-n{font-size:14.5px;color:#fff}
+.gate-row .gr-act{display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex:none}
+.raid-m{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.raid-p{font-size:11px;border:1px solid var(--line);border-radius:10px;padding:2px 8px;color:var(--muted)}
+.raid-p.ok{border-color:var(--ok);color:var(--ok)}
+.rtabs button{font-family:"Russo One",sans-serif;letter-spacing:.06em;font-size:12px;text-transform:uppercase}
+.champs{display:flex;gap:8px;overflow-x:auto}
+.champ{flex:1;min-width:110px;display:flex;gap:8px;align-items:center;border:1px solid rgba(255,215,106,.35);border-radius:6px;padding:8px 10px;background:rgba(255,215,106,.06)}
+.champ>span{font-size:22px;filter:drop-shadow(0 0 6px rgba(255,215,106,.7))}
+.champ b{font-size:13px;color:#ffe9a8}
+.champ-b{filter:drop-shadow(0 0 4px rgba(255,215,106,.8))}
+.lb[data-duel]{cursor:pointer}
+.feed-i{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(80,170,255,.1)}
+.feed-i:last-child{border-bottom:0}
+.duel{border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:8px;background:rgba(5,10,22,.5)}
+.duel.active{border-color:rgba(255,77,109,.45);box-shadow:0 0 12px rgba(255,77,109,.15)}
+.duel-sc{display:flex;align-items:center;justify-content:space-around;margin:10px 0 4px;text-align:center}
+.duel-sc .sys-font{font-size:26px;color:#fff}
