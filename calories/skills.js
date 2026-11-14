@@ -446,6 +446,7 @@ function renderPreview($app, sk) {
     el.querySelector("#ac-no").onclick = close;
     el.querySelector("#ac-yes").onclick = () => {
       sk.status = "active"; sk.start = X.addDays(X.today(), 1); sk.accepted = X.today(); X.save(); close(); X.render();
+      X.postEvent && X.postEvent("skill", `принял квест навыка «${p.skill_name}» на 30 дней`);
       X.system({ kind: "achv", tag: "КВЕСТ ПРИНЯТ", head: p.skill_name, body: `Путь начинается завтра.\n«${pr.motivation}»\n\nОдин день — ничто. Тридцать дней — другой человек.` });
     };
   });
@@ -569,6 +570,7 @@ function openSubmit(sk, n) {
           sk.tasks[n] = { done: true, at: X.today(), late, review: r };
           for (const c of r.recall || []) sk.cards.push({ q: c.q, a: c.a, step: 0, due: X.addDays(X.today(), REVIEW_STEPS[0]) });
           X.save(); close(); X.render();
+          X.postEvent && X.postEvent("skill", `выполнил день ${n} навыка «${sk.plan.skill_name}»`);
           X.system({ tag: "ЗАДАНИЕ ВЫПОЛНЕНО", head: `${sk.plan.skill_name} · день ${n}`, body: `+${late ? XPS.late : XPS.task} XP\n${r.feedback}\n\nКаждый день, который ты не бросил, — уровень, который у тебя никто не отнимет.` });
         } else {
           sk.tasks[n] = Object.assign(sk.tasks[n] || {}, { review: r, tries: ((sk.tasks[n] || {}).tries || 0) + 1 });
@@ -635,6 +637,7 @@ function openBoss(sk, w) {
           sk.bosses[w].grade = g; sk.bosses[w].at = X.today();
           if (g.weak && g.weak.length) sk.plan.profile.weak = [...new Set([...(sk.plan.profile.weak || []), ...g.weak])].slice(-8);
           X.save(); close(); X.render();
+          X.postEvent && X.postEvent("boss", g.passed ? `победил босса «${b.title}» (${Math.round(g.score)}/100)` : `проиграл боссу «${b.title}»`);
           X.system({ kind: g.passed ? "levelup" : "penalty", tag: g.passed ? "БОСС ПОВЕРЖЕН" : "БОСС УСТОЯЛ", head: `${b.title}: ${Math.round(g.score)}/100`, body: g.feedback });
           if (w < 4) setTimeout(() => openAdapt(sk, w), 400);
         } catch (err) { el.querySelector("#bs-st").innerHTML = `<div class="small bad mt">${e(err.message)}</div>`; btn.disabled = false; }
@@ -673,6 +676,7 @@ function openAdapt(sk, w) {
 function finishSkill(sk) {
   const st = skillStats(sk);
   sk.status = "done"; sk.mastery = st.mastery; sk.doneAt = X.today();
+  X.postEvent && X.postEvent("skill", `освоил навык «${sk.plan.skill_name}» на ${st.mastery}%`);
   X.save();
   X.system({ kind: "levelup", tag: "НАВЫК ОСВОЕН", head: `${sk.plan.skill_name} · Ур. ${sk.level}`,
     body: `Освоение: ${st.mastery}% · ранг навыка ${masteryRank(st.mastery)}\nВыполнено дней: ${st.done}/${st.need}\n\nТы больше не тот, кем начинал.` });

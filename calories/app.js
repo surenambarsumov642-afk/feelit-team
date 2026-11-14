@@ -2,6 +2,7 @@
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
 import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank } from "./skills.js";
+import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -57,7 +58,7 @@ const ACTIVITY = [
 function defaultState() {
   return {
     v: 1, profile: null, player: null,
-    entries: [], weights: [], workouts: {}, skills: [], title: null,
+    entries: [], weights: [], workouts: {}, skills: [], gates: {}, adj: [], extraTitles: [], duelsApplied: {}, title: null,
     seen: { level: 1, ach: [], quests: {}, penalties: [] },
   };
 }
@@ -94,17 +95,26 @@ async function syncNow() {
   syncing = true;
   try {
     const P = computeProgress(), d = P.days[today()];
-    const t = S.title && ACH.find(a => a.id === S.title);
+    const t = titleById(S.title);
     const backup = Object.assign({}, S, { player: null, entries: S.entries.map(e => Object.assign({}, e, { thumb: null })) });
     await api("sync", {
       token: S.player.token,
       stats: { level: P.level, rank: P.rank, xp: P.xp, streak: P.streak, best_streak: P.longest, perfect_days: P.perfectDays,
         workouts: P.workoutDays, title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
       save: backup,
+      days: Object.entries(P.days).slice(-400).map(([day, x]) => ({ day, xp: x.xp, norm: !!x.q.norm.done, workout: !!x.q.workout.done, quests: x.doneCount })),
     });
   } catch (e) { /* офлайн — попробуем позже */ }
   finally { syncing = false; }
 }
+
+/** Событие в общую ленту друзей (тихо, без ошибок). */
+function postEvent(kind, text) {
+  if (!API_URL || !S.player) return;
+  api("event", { token: S.player.token, kind, text }).catch(() => {});
+}
+/** Все титулы: достижения + особые (Врата, сезоны). */
+function titleById(id) { return id ? (ACH.find(a => a.id === id) || (S.extraTitles || []).find(t => t.id === id) || null) : null; }
 
 /* ============================ нормы и план ============================ */
 function goalOf(p) {
@@ -205,8 +215,11 @@ function computeProgress() {
   let xp = 0, cur = 0, longest = 0, proteinDays = 0, normDays = 0, perfectDays = 0, photos = 0, entries = S.entries.length, workoutDays = 0;
   let lvl = 1, lvlRest = 0;
   const skXP = skillXpByDate();
+  for (const a of S.adj || []) skXP[a.date] = (skXP[a.date] || 0) + a.xp;
   const days = {};
   const first = [start, ...Object.keys(byDate), ...Object.keys(S.workouts)].sort()[0];
+  // корректировки XP за даты раньше первого дня учитываем в первом дне
+  for (const d of Object.keys(skXP)) if (d < first) { skXP[first] = (skXP[first] || 0) + skXP[d]; delete skXP[d]; }
   for (let d = first; d <= td; d = addDays(d, 1)) {
     const s = daySums(d);
     photos += s.photos;
@@ -301,6 +314,7 @@ function checkEvents(P) {
     }
     if (day.all && !got.includes("all")) {
       got.push("all"); changed = true;
+      postEvent("quests", "выполнил все ежедневные квесты");
       system({ tag: "ЕЖЕДНЕВНЫЙ КВЕСТ", head: "Все задания выполнены", body: `Бонус: +${XP.allBonus} XP\nСистема довольна вашей дисциплиной.` });
     }
     seen.quests[td] = got;
@@ -319,11 +333,13 @@ function checkEvents(P) {
     const oldRank = rankOf(seen.level);
     system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `LV. ${P.level}`,
       body: P.rank !== oldRank ? `Новый ранг: ${P.rank}\nВы стали сильнее.` : "Вы стали сильнее." });
+    postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга ${P.rank}` : `достиг ${P.level} уровня`);
     seen.level = P.level; changed = true;
   } else if (P.level < seen.level) { seen.level = P.level; changed = true; }
   for (const a of ACH) if (a.ok(P) && !seen.ach.includes(a.id)) {
     seen.ach.push(a.id); changed = true;
     system({ kind: "achv", tag: "ДОСТИЖЕНИЕ", head: a.n, body: `${a.d}\nПолучен титул «${a.n}».` });
+    postEvent("ach", `получил титул «${a.n}»`);
   }
   if (changed) save();
 }
@@ -379,11 +395,12 @@ function render() {
   else renderSettings();
   renderTabbar();
   checkEvents(P);
+  settleGates(P).then(() => { /* изменения подхватит следующий render */ });
 }
 
 /* ============================ общие куски ============================ */
 function hunterCard(P, full) {
-  const t = S.title && ACH.find(a => a.id === S.title);
+  const t = titleById(S.title);
   return `<div class="win" ${full ? "" : 'data-hunter style="cursor:pointer"'}>${full ? "" : '<span class="hunter-more">профиль ›</span>'}
     <div class="hunter">
       <div class="rank-badge rank-${P.rank}"><span>${P.rank}</span></div>
@@ -457,6 +474,7 @@ function renderStatus(P) {
       <div class="macros">${macroBar("Белки", s.p, t.p)}${macroBar("Жиры", s.f, t.f)}${macroBar("Углеводы", s.c, t.c)}</div>
     </div>
     ${questsWin(P, td)}
+    ${API_URL && S.player ? gatesWin(P) : ""}
     <div class="grid2">
       <button class="btn block" data-act="photo">📷 Фото еды</button>
       <button class="btn block violet" data-act="manual">✎ По названию</button>
@@ -473,6 +491,7 @@ function renderStatus(P) {
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
   $app.querySelector("[data-hunter]").onclick = () => { tab = "hunter"; render(); window.scrollTo(0, 0); };
   bindQuests(P);
+  if (API_URL && S.player) bindGates($app, P);
 }
 function planWin(t) {
   return `<div class="win violet mt"><div class="win-h">План Системы<span class="right">${t.target} кг</span></div>
@@ -559,6 +578,10 @@ function renderHunter(P) {
     <div class="win"><div class="win-h">Последние 14 дней<span class="right">ккал</span></div>
       <div class="chart"><div class="plot"><div class="goal" style="bottom:${goalPos}%"><span>${t.kcal}</span></div>${bars}</div><div class="labels">${labels}</div></div>
     </div>
+    ${(S.extraTitles || []).length ? `<div class="win violet"><div class="win-h">Особые титулы<span class="right">${S.extraTitles.length}</span></div>
+      ${S.extraTitles.map(a => `<div class="ach got"><div class="ic">${esc(a.ic)}</div>
+        <div class="grow"><div class="an">${esc(a.n)}</div><div class="ad">${esc(a.d)}</div></div>
+        <button class="btn sm ${S.title === a.id ? "violet" : "ghost"} sel" data-title="${a.id}">${S.title === a.id ? "Титул" : "Надеть"}</button></div>`).join("")}</div>` : ""}
     <div class="win violet"><div class="win-h">Достижения и титулы<span class="right">${[...got].length}/${ACH.length}</span></div>
       ${ACH.map(a => `<div class="ach ${got.has(a.id) ? "got" : ""}">
         <div class="ic">${a.ic}</div>
@@ -615,47 +638,156 @@ function weightChart(t) {
 }
 
 /* ============================ экран: Рейтинг ============================ */
-let board = null, boardErr = null, boardAt = 0;
+let board = null, boardErr = null, boardAt = 0, boardPeriod = "week", champs = null;
+let rtab = "board", feed = null, feedAt = 0, duels = null, duelsAt = 0;
+const PERIODS = [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"], ["all", "Всё время"]];
+const CHAMP = { week: ["Охотник недели", "👑"], month: ["Лорд месяца", "♛"], year: ["Монарх", "☠"] };
+const METRICS = { xp: "больше XP", norm: "больше дней в норме", workout: "больше тренировок" };
 async function loadBoard() {
-  try { const d = await api("leaderboard"); board = d.players || []; boardErr = null; boardAt = Date.now(); }
-  catch (e) { boardErr = e.message; }
+  try {
+    const d = await api("leaderboard", { period: boardPeriod });
+    board = d.players || []; champs = d.champions || null; boardErr = null; boardAt = Date.now();
+    seasonPopups();
+  } catch (e) { boardErr = e.message; }
   if (tab === "rating") render();
 }
+function seasonPopups() {
+  if (!champs || !S.player) return;
+  S.seen.champs = S.seen.champs || [];
+  for (const k of ["week", "month", "year"]) {
+    const c = champs[k]; if (!c || S.seen.champs.includes(c.key)) continue;
+    S.seen.champs.push(c.key);
+    const mine = c.id === S.player.id, [name, ic] = CHAMP[k];
+    if (mine) {
+      const id = `champ_${c.key}`;
+      if (!S.extraTitles.some(t => t.id === id)) S.extraTitles.push({ id, ic, n: name, d: `Победитель сезона: ${k === "week" ? "неделя" : k === "month" ? "месяц" : "год"} (${c.key.split(":")[1]})` });
+      S.adj.push({ date: today(), xp: k === "week" ? 100 : k === "month" ? 300 : 1000, why: name });
+      postEvent("season", `стал «${name}»`);
+    }
+    system({ kind: mine ? "levelup" : "achv", tag: "СЕЗОН ЗАВЕРШЁН", head: `${ic} ${name}`, body: mine ? `Это ты, ${c.name}.\nНаграда: титул «${name}» и бонус XP.` : `${c.name} — ${c.xp} XP за сезон.\nСледующий сезон уже начался.` });
+  }
+  save();
+}
+async function loadFeed() {
+  try { const d = await api("feed"); feed = d.events || []; feedAt = Date.now(); } catch (e) { feed = feed || []; toast(e.message, true); }
+  if (tab === "rating") render();
+}
+async function loadDuels() {
+  if (!S.player) return;
+  try { const d = await api("duels", { token: S.player.token }); duels = d.duels || []; duelsAt = Date.now(); applyDuels(); } catch (e) { duels = duels || []; toast(e.message, true); }
+  if (tab === "rating") render();
+}
+function applyDuels() {
+  S.duelsApplied = S.duelsApplied || {};
+  let ch = false;
+  for (const d of duels || []) {
+    if (d.status !== "done" || S.duelsApplied[d.id]) continue;
+    S.duelsApplied[d.id] = 1; ch = true;
+    if (!d.winner) { system({ tag: "ДУЭЛЬ", head: "Ничья", body: `${d.a_name} vs ${d.b_name}\nСтавки возвращены.` }); continue; }
+    const won = d.winner === S.player.id, opp = d.a === S.player.id ? d.b_name : d.a_name;
+    S.adj.push({ date: today(), xp: won ? d.stake : -d.stake, why: `Дуэль с ${opp}` });
+    system({ kind: won ? "levelup" : "penalty", tag: won ? "ПОБЕДА В ДУЭЛИ" : "ПОРАЖЕНИЕ В ДУЭЛИ", head: `vs ${opp}`, body: `${won ? "+" : "−"}${d.stake} XP` });
+  }
+  if (ch) save();
+}
+const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); return m < 1 ? "только что" : m < 60 ? `${m} мин` : m < 1440 ? `${Math.round(m / 60)} ч` : `${Math.round(m / 1440)} д`; };
+
 function renderRating(P) {
-  if (!API_URL) {
+  if (!API_URL || !S.player) {
     $app.innerHTML = `<div class="screen-title"><h1>Рейтинг</h1></div>
       <div class="win"><div class="win-h">Сервер не подключён</div><div class="small muted">Рейтинг заработает, когда будет подключён сервер ARISE.</div></div>`;
     return;
   }
-  if (!board && !boardErr) { loadBoard(); }
-  else if (Date.now() - boardAt > 60000 && !boardErr) { loadBoard(); }
-  const td = today(), me = S.player && S.player.id;
-  const rows = (board || []).map((u, i) => {
-    const fresh = u.stats_date === td;
-    const q = fresh ? u.today_quests : 0, qt = u.today_total || QUESTS.length;
-    const streak = fresh || u.stats_date === addDays(td, -1) ? u.streak : 0;
-    return `<div class="lb ${u.id === me ? "me" : ""}">
-      <div class="pos ${i < 3 ? "top" + (i + 1) : ""}">${i + 1}</div>
-      <div class="rank-mini rank-${esc(u.rank)}">${esc(u.rank)}</div>
-      <div class="grow" style="min-width:0">
-        <div class="nm">${esc(u.name)}${u.id === me ? ' <span class="tiny muted">(ты)</span>' : ""}</div>
-        <div class="tiny muted ell">${u.title ? "«" + esc(u.title) + "» · " : ""}LV. ${u.level} · ${u.xp} XP</div>
+  if (rtab === "board" && ((!board && !boardErr) || Date.now() - boardAt > 60000)) loadBoard();
+  if (rtab === "feed" && (!feed || Date.now() - feedAt > 30000)) loadFeed();
+  if (rtab === "duels" && (!duels || Date.now() - duelsAt > 30000)) loadDuels();
+  const td = today(), me = S.player.id;
+  let body = "";
+  if (rtab === "board") {
+    const rows = (board || []).map((u, i) => {
+      const fresh = u.stats_date === td;
+      const q = fresh ? u.today_quests : 0, qt = u.today_total || QUESTS.length;
+      const streak = fresh || u.stats_date === addDays(td, -1) ? u.streak : 0;
+      const badges = champs ? ["week", "month", "year"].filter(k => champs[k] && champs[k].id === u.id).map(k => CHAMP[k][1]).join("") : "";
+      return `<div class="lb ${u.id === me ? "me" : ""}" ${u.id !== me ? `data-duel="${u.id}" data-name="${esc(u.name)}"` : ""}>
+        <div class="pos ${i < 3 ? "top" + (i + 1) : ""}">${i + 1}</div>
+        <div class="rank-mini rank-${esc(u.rank)}">${esc(u.rank)}</div>
+        <div class="grow" style="min-width:0">
+          <div class="nm">${badges ? `<span class="champ-b">${badges}</span> ` : ""}${esc(u.name)}${u.id === me ? ' <span class="tiny muted">(ты)</span>' : ""}</div>
+          <div class="tiny muted ell">${u.title ? "«" + esc(u.title) + "» · " : ""}LV. ${u.level} · ${boardPeriod === "all" ? u.xp + " XP" : `<b style="color:var(--blue2)">${u.season_xp ?? 0} XP</b> за сезон`}</div>
+        </div>
+        <div class="lb-r"><div title="серия">🔥 ${streak}</div><div class="tiny ${q >= qt ? "ok" : "muted"}">квесты ${q}/${qt}</div></div>
+      </div>`;
+    }).join("");
+    const ch = champs ? ["week", "month", "year"].filter(k => champs[k]).map(k => `<div class="champ"><span>${CHAMP[k][1]}</span><div><div class="tiny muted">${CHAMP[k][0]}</div><b>${esc(champs[k].name)}</b></div></div>`).join("") : "";
+    body = `<div class="seg mb">${PERIODS.map(([k, n]) => `<button data-per="${k}" class="${boardPeriod === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      ${ch ? `<div class="champs mb">${ch}</div>` : ""}
+      <div class="win"><div class="win-h">${boardPeriod === "all" ? "Таблица охотников" : "Сезон: " + PERIODS.find(p => p[0] === boardPeriod)[1].toLowerCase()}<span class="right">по XP</span></div>
+        ${boardErr ? `<div class="small bad">${esc(boardErr)}</div>` : !board ? `<div class="center"><span class="spinner"></span></div>` : rows || `<div class="empty">Пока никого. Позови друзей!</div>`}
       </div>
-      <div class="lb-r"><div title="серия">🔥 ${streak}</div><div class="tiny ${q >= qt ? "ok" : "muted"}">квесты ${q}/${qt}</div></div>
-    </div>`;
-  }).join("");
+      <div class="tiny muted center mb">Тапни по охотнику, чтобы вызвать его на дуэль.<br>🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
+      <button class="btn ghost block" id="lb-share">Пригласить друга</button>`;
+  } else if (rtab === "feed") {
+    body = `<div class="win"><div class="win-h">Лента охотников</div>
+      ${!feed ? `<div class="center"><span class="spinner"></span></div>` : feed.length ? feed.map(ev => `<div class="feed-i">
+        <div class="rank-mini rank-${esc((ev.players && ev.players.rank) || "E")}">${esc((ev.players && ev.players.rank) || "E")}</div>
+        <div class="grow"><b>${esc(ev.players ? ev.players.name : "?")}</b> <span class="small">${esc(ev.text)}</span></div>
+        <span class="tiny dim">${ago(ev.created_at)}</span></div>`).join("") : `<div class="empty">Пока тихо. Сделай первый шаг — и он появится здесь.</div>`}</div>`;
+  } else {
+    const list = duels || [];
+    body = `<div class="win"><div class="win-h">Дуэли<span class="right">7 дней</span></div>
+      <div class="tiny muted mb">Вызов — в таблице рейтинга, тапом по сопернику. Дуэль начинается со следующего дня после принятия. Победитель забирает ставку XP.</div>
+      ${!duels ? `<div class="center"><span class="spinner"></span></div>` : list.length ? list.map(d => {
+        const iA = d.a === me, opp = iA ? d.b_name : d.a_name;
+        const my = d.score ? d.score[me] ?? 0 : 0, their = d.score ? d.score[iA ? d.b : d.a] ?? 0 : 0;
+        const left = d.end_day ? Math.max(0, Math.round((parseD(d.end_day) - parseD(td)) / 864e5) + 1) : 0;
+        return `<div class="duel ${d.status}">
+          <div class="row"><b class="grow">⚔ ${esc(opp)}</b><span class="tiny muted">${METRICS[d.metric]} · ставка ${d.stake} XP</span></div>
+          ${d.status === "pending" ? (iA ? `<div class="tiny muted mt">Ждём ответа соперника…</div>` :
+            `<div class="grid2 mt"><button class="btn danger sm" data-dresp="${d.id}" data-acc="0">Отказаться</button><button class="btn sm" data-dresp="${d.id}" data-acc="1">Принять вызов</button></div>`) :
+          `<div class="duel-sc"><div><div class="sys-font">${my}</div><div class="tiny muted">ты</div></div><div class="tiny dim">vs</div><div><div class="sys-font">${their}</div><div class="tiny muted">${esc(opp)}</div></div></div>
+           <div class="tiny ${d.status === "done" ? (d.winner === me ? "ok" : d.winner ? "bad" : "muted") : "muted"} center">${d.status === "done" ? (d.winner === me ? "Победа" : d.winner ? "Поражение" : "Ничья") : td < d.start_day ? "Начнётся завтра" : `Осталось дней: ${left}`}</div>`}
+        </div>`;
+      }).join("") : `<div class="empty">Дуэлей пока нет.</div>`}</div>`;
+  }
   $app.innerHTML = `<div class="screen-title"><h1>Рейтинг</h1><button class="icon-btn" style="margin-left:auto" id="lb-refresh" aria-label="Обновить">↻</button></div>
-    <div class="win"><div class="win-h">Таблица охотников<span class="right">по XP</span></div>
-      ${boardErr ? `<div class="small bad">${esc(boardErr)}</div>` : !board ? `<div class="center"><span class="spinner"></span></div>` :
-        rows || `<div class="empty">Пока никого. Позови друзей!</div>`}
-    </div>
-    <div class="tiny muted center mb">🔥 — дней подряд в ударе · квесты — выполнено сегодня.<br>Твои данные отправляются автоматически.</div>
-    <button class="btn ghost block" id="lb-share">Пригласить друга</button>`;
-  document.getElementById("lb-refresh").onclick = () => { board = null; boardErr = null; syncNow().finally(loadBoard); render(); };
-  document.getElementById("lb-share").onclick = async () => {
+    <div class="seg mb rtabs"><button data-rt="board" class="${rtab === "board" ? "on" : ""}">Таблица</button><button data-rt="feed" class="${rtab === "feed" ? "on" : ""}">Лента</button><button data-rt="duels" class="${rtab === "duels" ? "on" : ""}">Дуэли</button></div>
+    ${body}`;
+  $app.querySelectorAll("[data-rt]").forEach(b => b.onclick = () => { rtab = b.dataset.rt; render(); });
+  $app.querySelectorAll("[data-per]").forEach(b => b.onclick = () => { boardPeriod = b.dataset.per; board = null; boardErr = null; render(); });
+  document.getElementById("lb-refresh").onclick = () => {
+    board = null; boardErr = null; feed = null; duels = null;
+    syncNow().finally(() => { if (rtab === "board") loadBoard(); else if (rtab === "feed") loadFeed(); else loadDuels(); });
+    render();
+  };
+  const sh = document.getElementById("lb-share");
+  if (sh) sh.onclick = async () => {
     const url = location.href.split("#")[0];
     try { if (navigator.share) await navigator.share({ title: "ARISE", text: "Давай соревноваться в ARISE!", url }); else { await navigator.clipboard.writeText(url); toast("Ссылка скопирована"); } } catch {}
   };
+  $app.querySelectorAll("[data-duel]").forEach(r => r.onclick = () => openDuel(r.dataset.duel, r.dataset.name));
+  $app.querySelectorAll("[data-dresp]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api("duel_respond", { token: S.player.token, id: b.dataset.dresp, accept: b.dataset.acc === "1" }); toast(b.dataset.acc === "1" ? "Вызов принят. Дуэль начнётся завтра." : "Вызов отклонён"); duels = null; render(); }
+    catch (e) { toast(e.message, true); b.disabled = false; }
+  });
+}
+function openDuel(id, name) {
+  let metric = "xp", stake = 100;
+  sheet(`<h2>Дуэль</h2><div class="small mb">Вызвать <b>${esc(name)}</b> на дуэль на 7 дней.</div>
+    <div class="f">Кто…</div><div class="chips-row" id="dm">${Object.entries(METRICS).map(([k, v]) => `<button class="chip-b ${k === metric ? "on" : ""}" data-m="${k}">${v}</button>`).join("")}</div>
+    <div class="f mt">Ставка XP (победитель забирает у проигравшего)</div><div class="chips-row" id="ds">${[50, 100, 200, 300].map(v => `<button class="chip-b ${v === stake ? "on" : ""}" data-s="${v}">${v}</button>`).join("")}</div>
+    <button class="btn-epic block mt" id="dg">Бросить вызов</button>`, (el, close) => {
+    el.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { metric = b.dataset.m; el.querySelectorAll("[data-m]").forEach(x => x.classList.toggle("on", x === b)); });
+    el.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { stake = +b.dataset.s; el.querySelectorAll("[data-s]").forEach(x => x.classList.toggle("on", x === b)); });
+    el.querySelector("#dg").onclick = async () => {
+      const btn = el.querySelector("#dg"); btn.disabled = true;
+      try {
+        await api("duel_create", { token: S.player.token, opponent: id, metric, stake });
+        close(); toast("Вызов отправлен"); rtab = "duels"; duels = null; render();
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
+  });
 }
 
 /* ============================ тренировка ============================ */
@@ -1133,7 +1265,8 @@ function pickPhoto() {
     inp.click();
   });
 }
-initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL });
+initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL, postEvent });
+initGates({ S: () => S, save, api, esc, today, addDays, parseD, system, toast, render, postEvent, sheet });
 
 const fileInput = document.createElement("input");
 fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";

@@ -43,6 +43,50 @@ async function playerByToken(token: unknown) {
 }
 const int = (x: unknown, lo = 0, hi = 1e9) => Math.max(lo, Math.min(hi, Math.round(Number(x) || 0)));
 const todayUTC5 = () => new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+const addDaysISO = (d: string, n: number) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const isDay = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d));
+/** Границы сезона (по Ташкенту): неделя с понедельника, месяц, год. back=1 — прошлый сезон. */
+function seasonRange(period: string, back = 0): [string, string] {
+  const td = todayUTC5();
+  if (period === "week") {
+    const wd = (new Date(td + "T00:00:00Z").getUTCDay() + 6) % 7;
+    const from = addDaysISO(td, -wd - 7 * back);
+    return [from, back ? addDaysISO(from, 6) : td];
+  }
+  if (period === "month") {
+    const [y, m] = td.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 - back, 1));
+    const from = d.toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    return [from, back ? end : td];
+  }
+  const y = Number(td.slice(0, 4)) - back;
+  return [`${y}-01-01`, back ? `${y}-12-31` : td];
+}
+async function seasonXp(from: string, to: string) {
+  const { data, error } = await db.rpc("season_board", { p_from: from, p_to: to });
+  if (error) throw new Error("Ошибка сезона");
+  return new Map<string, number>((data ?? []).map((r: { player_id: string; xp: number }) => [r.player_id, Number(r.xp)]));
+}
+async function champion(period: string) {
+  const [from, to] = seasonRange(period, 1);
+  const m = await seasonXp(from, to);
+  let best: [string, number] | null = null;
+  for (const [id, xp] of m) if (xp > 0 && (!best || xp > best[1])) best = [id, xp];
+  if (!best) return null;
+  const { data } = await db.from("players").select("id,name").eq("id", best[0]).maybeSingle();
+  return data ? { id: data.id, name: data.name, xp: best[1], key: `${period}:${from}` } : null;
+}
+async function dayStats(ids: string[], from: string, to: string) {
+  const { data } = await db.from("player_days").select("player_id,xp,norm,workout").in("player_id", ids).gte("day", from).lte("day", to);
+  const out: Record<string, { xp: number; norm: number; workout: number }> = {};
+  for (const id of ids) out[id] = { xp: 0, norm: 0, workout: 0 };
+  for (const r of data ?? []) { const o = out[r.player_id]; o.xp += r.xp; o.norm += r.norm ? 1 : 0; o.workout += r.workout ? 1 : 0; }
+  return out;
+}
+async function postEvent(playerId: string, kind: string, text: string) {
+  await db.from("events").insert({ player_id: playerId, kind: kind.slice(0, 20), text: text.slice(0, 160) });
+}
 
 /* ---------------- ИИ: еда ---------------- */
 const SYSTEM = `You are a professional nutritionist and food-recognition expert inside a calorie-tracking app.
@@ -436,14 +480,114 @@ Deno.serve(async (req) => {
           ...(save ? { save } : {}), updated_at: new Date().toISOString(),
         }).eq("id", p.id);
         if (error) return fail("Ошибка сохранения", 500);
+        if (Array.isArray(b.days)) {
+          const rows = (b.days as Record<string, unknown>[]).filter((d) => isDay(d.day)).slice(-400).map((d) => ({
+            player_id: p.id, day: d.day, xp: int(d.xp, -100000, 100000), norm: !!d.norm, workout: !!d.workout, quests: int(d.quests, 0, 10),
+          }));
+          if (rows.length) await db.from("player_days").upsert(rows, { onConflict: "player_id,day" });
+        }
         return json({ ok: true });
       }
       case "leaderboard": {
         const { data, error } = await db.from("players")
           .select("id,name,level,rank,xp,streak,best_streak,perfect_days,workouts,title,today_quests,today_total,stats_date,updated_at")
-          .order("xp", { ascending: false }).limit(100);
+          .order("xp", { ascending: false }).limit(200);
         if (error) return fail("Ошибка чтения", 500);
-        return json({ players: data });
+        const period = String(b.period ?? "all");
+        let players = data ?? [];
+        let range: [string, string] | null = null;
+        if (["week", "month", "year"].includes(period)) {
+          range = seasonRange(period);
+          const m = await seasonXp(range[0], range[1]);
+          players = players.map((x) => ({ ...x, season_xp: m.get(x.id) ?? 0 })).sort((a, b2) => b2.season_xp - a.season_xp || b2.xp - a.xp);
+        }
+        const champions = { week: await champion("week"), month: await champion("month"), year: await champion("year") };
+        return json({ players: players.slice(0, 100), period, range, champions });
+      }
+      case "event": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const since = new Date(Date.now() - 864e5).toISOString();
+        const { count } = await db.from("events").select("id", { count: "exact", head: true }).eq("player_id", p.id).gte("created_at", since);
+        if ((count ?? 0) >= 40) return json({ ok: false });
+        await postEvent(p.id, String(b.kind ?? "info"), String(b.text ?? ""));
+        return json({ ok: true });
+      }
+      case "feed": {
+        const { data, error } = await db.from("events").select("id,kind,text,created_at,player_id,players(name,rank)")
+          .order("created_at", { ascending: false }).limit(60);
+        if (error) return fail("Ошибка ленты", 500);
+        return json({ events: data });
+      }
+      case "duel_create": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const opp = String(b.opponent ?? ""), metric = String(b.metric ?? "xp");
+        if (!["xp", "norm", "workout"].includes(metric)) return fail("Неизвестный тип дуэли");
+        if (opp === p.id) return fail("Нельзя вызвать самого себя");
+        const stake = int(b.stake ?? 100, 50, 500);
+        const { data: o } = await db.from("players").select("id,name").eq("id", opp).maybeSingle();
+        if (!o) return fail("Соперник не найден");
+        const { data: ex } = await db.from("duels").select("id").in("status", ["pending", "active"])
+          .or(`and(a.eq.${p.id},b.eq.${opp}),and(a.eq.${opp},b.eq.${p.id})`);
+        if (ex && ex.length) return fail("С этим охотником уже есть дуэль");
+        const { error } = await db.from("duels").insert({ a: p.id, b: opp, metric, stake });
+        if (error) return fail("Не удалось создать дуэль", 500);
+        await postEvent(p.id, "duel", `вызвал ${o.name} на дуэль`);
+        return json({ ok: true });
+      }
+      case "duel_respond": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { data: d } = await db.from("duels").select("*").eq("id", String(b.id ?? "")).maybeSingle();
+        if (!d || d.b !== p.id || d.status !== "pending") return fail("Дуэль не найдена");
+        if (b.accept) {
+          const start = addDaysISO(todayUTC5(), 1);
+          await db.from("duels").update({ status: "active", start_day: start, end_day: addDaysISO(start, 6) }).eq("id", d.id);
+          await postEvent(p.id, "duel", "принял вызов на дуэль");
+        } else await db.from("duels").update({ status: "declined" }).eq("id", d.id);
+        return json({ ok: true });
+      }
+      case "duels": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { data: list } = await db.from("duels").select("*").or(`a.eq.${p.id},b.eq.${p.id}`)
+          .neq("status", "declined").order("created_at", { ascending: false }).limit(20);
+        const ids = [...new Set((list ?? []).flatMap((d) => [d.a, d.b]))];
+        const { data: names } = ids.length ? await db.from("players").select("id,name,rank").in("id", ids) : { data: [] };
+        const nm = Object.fromEntries((names ?? []).map((x) => [x.id, x]));
+        const td = todayUTC5(), out = [];
+        for (const d of list ?? []) {
+          let score: Record<string, number> = {};
+          if (d.status !== "pending" && d.start_day) {
+            const st = await dayStats([d.a, d.b], d.start_day, d.end_day < td ? d.end_day : td);
+            score = { [d.a]: st[d.a][d.metric as "xp"], [d.b]: st[d.b][d.metric as "xp"] };
+            if (d.status === "active" && td > d.end_day) {
+              const winner = score[d.a] === score[d.b] ? null : score[d.a] > score[d.b] ? d.a : d.b;
+              await db.from("duels").update({ status: "done", winner }).eq("id", d.id);
+              d.status = "done"; d.winner = winner;
+              if (winner) await postEvent(winner, "duel", `победил в дуэли против ${nm[winner === d.a ? d.b : d.a]?.name ?? "соперника"}`);
+            }
+          }
+          out.push({ ...d, a_name: nm[d.a]?.name, b_name: nm[d.b]?.name, score });
+        }
+        return json({ duels: out, today: td });
+      }
+      case "gate_join": case "gate_update": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const key = String(b.key ?? "").slice(0, 60);
+        if (!key) return fail("Нет Врат");
+        const status = ["active", "done", "failed"].includes(String(b.status)) ? String(b.status) : "active";
+        await db.from("gate_runs").upsert({ gate_key: key, player_id: p.id, status, progress: int(b.progress, 0, 100), updated_at: new Date().toISOString() },
+          { onConflict: "gate_key,player_id" });
+        return json({ ok: true });
+      }
+      case "gate_runs": {
+        const keys = (Array.isArray(b.keys) ? b.keys : []).map(String).slice(0, 10);
+        if (!keys.length) return json({ runs: [] });
+        const { data } = await db.from("gate_runs").select("gate_key,player_id,status,progress,players(name)").in("gate_key", keys);
+        return json({ runs: data ?? [] });
       }
       case "restore": {
         const p = await playerByToken(b.token);
