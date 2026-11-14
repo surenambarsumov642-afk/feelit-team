@@ -318,6 +318,19 @@ function conform(x: any, v: any): any {
   const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
   return x?.enum && !x.enum.includes(s) ? x.enum[Math.min(1, x.enum.length - 1)] : s;
 }
+/** Если модель обернула ответ ({"map": {...}}), достаём вложенный объект, где больше всего полей схемы. */
+function unwrap(x: any, v: any): any {
+  if (String(x?.type || "").toUpperCase() !== "OBJECT" || !v || typeof v !== "object" || Array.isArray(v)) return v;
+  const keys = Object.keys(x.properties ?? {}), hits = (o: any) => o && typeof o === "object" && !Array.isArray(o) ? keys.filter((k) => k in o).length : 0;
+  let best = v, bestN = hits(v);
+  for (const a of Object.values(v)) {
+    if (hits(a) > bestN) { best = a; bestN = hits(a); }
+    if (a && typeof a === "object") for (const b of Object.values(a as object)) if (hits(b) > bestN) { best = b; bestN = hits(b); }
+  }
+  return best;
+}
+/** Ответ «пустой»: все массивы пустые и все строки пустые — значит, модель ответила не по схеме. */
+const looksEmpty = (v: any) => v && typeof v === "object" && Object.values(v).every((x) => (Array.isArray(x) ? !x.length : x === "" || x === 0 || x === false));
 function parseLoose(text: string) {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
   try { return JSON.parse(t); } catch { /* ниже */ }
@@ -352,8 +365,12 @@ async function groqCall(blocks: Block[], system: string, schema: unknown, opts: 
       if (r.ok) {
         const d = JSON.parse(txt);
         console.log("groq", model, JSON.stringify(d.usage ?? {}));
-        try { return conform(schema, parseLoose(d.choices?.[0]?.message?.content ?? "")); }
-        catch { last = `${model}: bad json`; continue; }
+        const raw = d.choices?.[0]?.message?.content ?? "";
+        try {
+          const res = conform(schema, unwrap(schema, parseLoose(raw)));
+          if (looksEmpty(res)) { console.error("groq empty", model, raw.slice(0, 400)); last = `${model}: empty`; if (attempt === 0) continue; break; }
+          return res;
+        } catch { last = `${model}: bad json`; continue; }
       }
       last = `${model}: ${r.status} ${txt.slice(0, 200)}`;
       console.error("groq", last);
@@ -381,7 +398,7 @@ async function cfCall(blocks: Block[], system: string, schema: unknown, opts: AI
     if (r.ok) {
       const res = d.result ?? {};
       const text = typeof res.response === "string" ? res.response : res.choices?.[0]?.message?.content ?? "";
-      try { return conform(schema, parseLoose(text || "")); } catch { last = `${model}: bad json`; continue; }
+      try { return conform(schema, unwrap(schema, parseLoose(text || ""))); } catch { last = `${model}: bad json`; continue; }
     }
     last = `${model}: ${r.status} ${JSON.stringify(d.errors ?? d).slice(0, 200)}`;
     console.error("cf", last);
