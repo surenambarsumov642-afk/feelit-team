@@ -7,7 +7,8 @@ async function step(name: string, fn: () => Promise<unknown>) {
   try { const v = await fn(); show(name, t0() - s, v); return v as any; }
   catch (e) { console.log(`\n### ${name} — ОШИБКА: ${(e as Error).message}`); return null; }
 }
-const img = Deno.args[0] ? btoa(String.fromCharCode(...await Deno.readFile(Deno.args[0]))) : "";
+const { encodeBase64 } = await import("jsr:@std/encoding/base64");
+const img = Deno.args[0] ? encodeBase64(await Deno.readFile(Deno.args[0])) : "";
 if (img) await step("Фото еды", () => ai(imageParts(img, ""), SYSTEM, SCHEMA, { maxTokens: 2000 }));
 await step("Текст: плов 300 г и чай с сахаром", () => ai([{ text: "Что съел пользователь: плов 300 г и чай с сахаром" }], TEXT_SYSTEM, SCHEMA, { maxTokens: 1500 }));
 const base = { skill: "ИИ-видео", result: "делать короткие рекламные ролики для кафе с помощью ИИ", why: "хочу зарабатывать", success: "сделаю 3 ролика и продам один" };
