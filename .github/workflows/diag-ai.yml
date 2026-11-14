@@ -1,0 +1,21 @@
+# Проверка ключа ИИ (Claude): один крошечный запрос. Запускается при изменении этого файла в рабочей ветке или вручную.
+name: Проверить ключ ИИ
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/diag-ai.yml"]
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Пробный запрос к Claude Haiku 5.5
+        run: |
+          [ -n "$KEY" ] || { echo "Нет секрета ANTHROPIC_API_KEY"; exit 1; }
+          code=$(curl -sS -o out.json -w "%{http_code}" https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $KEY" -H "anthropic-version: 2026-10-21" -H "content-type: application/json" \
+            -d '{"model":"claude-haiku-5-5","max_tokens":200,"output_config":{"effort":"low"},"messages":[{"role":"user","content":"Ответь одним словом: привет"}]}')
+          echo "HTTP $code"; jq -c '.error // {stop: .stop_reason, usage: .usage, text: [.content[] | select(.type=="text") | .text]}' out.json
+          [ "$code" = 200 ]

@@ -1,8 +1,10 @@
-# Разворачивает сервер ARISE в Supabase: таблица игроков + функция arise + ключ Gemini.
+# Разворачивает сервер ARISE в Supabase: таблица игроков + функция arise + ключ ИИ (Claude).
 # Секреты репозитория (Settings → Secrets and variables → Actions):
 #   SUPABASE_ACCESS_TOKEN — supabase.com → Account → Access Tokens
 #   SUPABASE_PROJECT_REF  — id проекта (из адреса https://<id>.supabase.co)
-#   GEMINI_API_KEY        — aistudio.google.com → Get API key
+#   GROQ_API_KEY          — console.groq.com/keys (бесплатный ИИ: текст и фото)
+#   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN — запасной бесплатный ИИ для фото (Workers AI)
+#   ANTHROPIC_API_KEY     — необязательно: если задан, ИИ идёт через Claude Haiku 5.5
 name: Развернуть сервер ARISE
 on:
   workflow_dispatch: {}
@@ -21,7 +23,7 @@ jobs:
         run: |
           [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "Нет секрета SUPABASE_ACCESS_TOKEN"; exit 1; }
           [ -n "$REF" ] || { echo "Нет секрета SUPABASE_PROJECT_REF"; exit 1; }
-          [ -n "${{ secrets.GEMINI_API_KEY }}" ] || { echo "Нет секрета GEMINI_API_KEY"; exit 1; }
+          [ -n "${{ secrets.GROQ_API_KEY }}${{ secrets.ANTHROPIC_API_KEY }}" ] || { echo "Нет ключа ИИ: GROQ_API_KEY или ANTHROPIC_API_KEY"; exit 1; }
       - name: Создать таблицу
         run: |
           code=$(curl -sS -o resp.txt -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
@@ -31,8 +33,19 @@ jobs:
           [ "$code" -lt 300 ] || { echo "Ошибка SQL ($code)"; exit 1; }
       - uses: supabase/setup-cli@v1
         with: { version: latest }
-      - name: Сохранить ключ Gemini на сервере
-        run: supabase secrets set --yes --project-ref "$REF" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
+      - name: Сохранить ключи ИИ на сервере
+        env:
+          GROQ: ${{ secrets.GROQ_API_KEY }}
+          CF_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ANT: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          args=()
+          [ -n "$GROQ" ] && args+=("GROQ_API_KEY=$GROQ")
+          [ -n "$CF_ID" ] && args+=("CLOUDFLARE_ACCOUNT_ID=$CF_ID")
+          [ -n "$CF_TOKEN" ] && args+=("CLOUDFLARE_API_TOKEN=$CF_TOKEN")
+          [ -n "$ANT" ] && args+=("ANTHROPIC_API_KEY=$ANT")
+          supabase secrets set --yes --project-ref "$REF" "${args[@]}"
       - name: Развернуть функцию
         run: supabase functions deploy arise --yes --project-ref "$REF" --no-verify-jwt
       - name: Проверка

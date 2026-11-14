@@ -1,7 +1,11 @@
 // ARISE — серверная функция Supabase.
-// Действия: register, sync, leaderboard, restore, analyze (распознавание еды через Gemini).
-// Секреты: GEMINI_API_KEY (обязательно), GEMINI_MODEL (необязательно), PHOTO_LIMIT (фото в день на игрока, по умолчанию 15).
+// Действия: register, sync, leaderboard, restore, analyze, estimate, skill, rename.
+// ИИ: бесплатно через Groq (текст: gpt-oss-120b, фото: qwen3.8-27b) с запасным Cloudflare Workers AI для фото.
+// Если задан ANTHROPIC_API_KEY — всё идёт через Claude Haiku 5.5.
+// Секреты: GROQ_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (или ANTHROPIC_API_KEY),
+// PHOTO_LIMIT (фото в день, 15), TEXT_LIMIT (текстовых расчётов в день, 40), SKILL_LIMIT (запросов к наставнику в день, 40).
 import { createClient } from "npm:@supabase/supabase-js@2";
+import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +44,7 @@ async function playerByToken(token: unknown) {
 const int = (x: unknown, lo = 0, hi = 1e9) => Math.max(lo, Math.min(hi, Math.round(Number(x) || 0)));
 const todayUTC5 = () => new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
 
-/* ---------------- Gemini ---------------- */
+/* ---------------- ИИ: еда ---------------- */
 const SYSTEM = `You are a professional nutritionist and food-recognition expert inside a calorie-tracking app.
 The user sends a photo of food. Identify every distinct food or drink item that is visible and estimate,
 as precisely as possible, the portion weight in grams and its calories, protein, fat and carbohydrates.
@@ -90,48 +94,183 @@ Split it into distinct food items and estimate for each: portion weight in grams
 - Use standard nutrition references per 100 g, then scale. Calories must match macros (≈4P+9F+4C within ~10%).
 Names in Russian, short, lower-case. If the text is not food, set is_food=false and return an empty list.`;
 
-function imageParts(image: string, hint: string) {
+function imageParts(image: string, hint: string): Block[] {
   return [
-    { inline_data: { mime_type: "image/jpeg", data: image } },
+    { image },
     { text: hint ? `Уточнение от пользователя: ${hint}\n\nОпредели продукты на фото и оцени КБЖУ.` : "Определи продукты на фото и оцени КБЖУ." },
   ];
 }
 
-async function gemini(parts: unknown[], system = SYSTEM, schema: unknown = SCHEMA, temperature = 0.2) {
-  const key = Deno.env.get("GEMINI_API_KEY");
-  if (!key) throw new Error("На сервере не задан GEMINI_API_KEY");
-  const models = [Deno.env.get("GEMINI_MODEL"), "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
-    .filter(Boolean) as string[];
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts }],
-    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature, maxOutputTokens: 16000 },
-  };
-  let lastErr = "";
-  for (const model of models) {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify(body),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      const text = (d.candidates?.[0]?.content?.parts ?? []).filter((p: { thought?: boolean }) => !p.thought)
-        .map((p: { text?: string }) => p.text ?? "").join("");
-      if (!text) { lastErr = "пустой ответ модели"; continue; }
-      try { return JSON.parse(text); } catch { lastErr = "ответ модели не JSON"; continue; }
-    }
-    lastErr = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`;
-    console.error("gemini", lastErr);
-    // 404 — модели нет, 429 — исчерпан лимит этой модели, 5xx — сбой: пробуем следующую
-    if (r.status === 403 && lastErr.includes("free tier is not available")) {
-      throw new Error("ИИ отключён: для ключа Gemini недоступен бесплатный тариф — владельцу нужно включить оплату в Google AI Studio.");
-    }
-    if (r.status === 400 && lastErr.includes("API key")) throw new Error("Ключ Gemini на сервере недействителен.");
-    if (![404, 429, 500, 503].includes(r.status)) break;
+const MODEL = "claude-haiku-5-5";
+let anthropic: Anthropic | null = null;
+
+/** Схема в стиле OBJECT/STRING → JSON Schema для structured outputs (additionalProperties: false). */
+function toJsonSchema(x: any): any {
+  if (!x || typeof x !== "object") return x;
+  const out: any = { type: String(x.type).toLowerCase() };
+  if (x.enum) out.enum = x.enum;
+  if (x.description) out.description = x.description;
+  if (out.type === "object") {
+    out.properties = Object.fromEntries(Object.entries(x.properties ?? {}).map(([k, v]) => [k, toJsonSchema(v)]));
+    out.required = x.required ?? Object.keys(out.properties);
+    out.additionalProperties = false;
   }
-  if (lastErr.includes(" 429 ")) throw new Error("Бесплатный лимит ИИ на сегодня исчерпан. Попробуй позже.");
-  throw new Error("Сервис ИИ недоступен. Попробуй позже.");
+  if (out.type === "array") out.items = toJsonSchema(x.items);
+  return out;
+}
+
+type Block = { text?: string; image?: string };
+type AIOpts = { effort?: "low" | "medium"; maxTokens?: number };
+/**
+ * Запрос к Claude со строгим JSON-ответом. Экономия токенов: Haiku 5.5, низкий effort (думает мало или не думает),
+ * короткие системные промпты, max_tokens по задаче, фото уменьшаются на телефоне.
+ */
+async function claudeCall(blocks: Block[], system: string, schema: unknown, opts: AIOpts = {}) {
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) throw new Error("На сервере не задан ключ ИИ (ANTHROPIC_API_KEY).");
+  anthropic ??= new Anthropic({ apiKey: key, maxRetries: 2, timeout: 110_000 });
+  const content = blocks.map((b) => b.image
+    ? { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: b.image } }
+    : { type: "text" as const, text: b.text ?? "" });
+  let res;
+  try {
+    res = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: opts.maxTokens ?? 4000,
+      system,
+      output_config: { effort: opts.effort ?? "low", format: { type: "json_schema", schema: toJsonSchema(schema) } },
+      messages: [{ role: "user", content }],
+    });
+  } catch (e) {
+    console.error("claude", e);
+    if (e instanceof Anthropic.AuthenticationError) throw new Error("Ключ ИИ на сервере недействителен.");
+    if (e instanceof Anthropic.PermissionDeniedError) throw new Error("Нет доступа к модели ИИ с этим ключом.");
+    if (e instanceof Anthropic.RateLimitError) throw new Error("ИИ перегружен или закончился баланс. Попробуй позже.");
+    if (e instanceof Anthropic.BadRequestError) {
+      const m = String((e as Error).message);
+      throw new Error(m.includes("credit balance") ? "На счёте ИИ закончились деньги — владельцу нужно пополнить баланс." : "ИИ отклонил запрос.");
+    }
+    if (e instanceof Anthropic.APIConnectionError) throw new Error("Нет связи с ИИ. Попробуй позже.");
+    if (e instanceof Anthropic.APIError) throw new Error("Сервис ИИ временно недоступен. Попробуй позже.");
+    throw e;
+  }
+  console.log("usage", JSON.stringify(res.usage));
+  if (res.stop_reason === "refusal") throw new Error("ИИ отказался обрабатывать этот запрос.");
+  if (res.stop_reason === "max_tokens") throw new Error("Ответ ИИ оборвался. Попробуй ещё раз.");
+  const text = res.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
+  try { return JSON.parse(text); } catch { throw new Error("ИИ вернул неразборчивый ответ. Попробуй ещё раз."); }
+}
+
+/* ---------- бесплатный ИИ: Groq + Cloudflare ---------- */
+const GROQ_TEXT = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
+const GROQ_VISION = ["qwen/qwen3.8-27b"];
+const CF_VISION = ["@cf/qwen/qwen3.8-27b", "@cf/meta/llama-4-scout-17b-16e-instruct"];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Пример JSON по схеме — модель видит, что именно вернуть. */
+function exampleOf(x: any): any {
+  const t = String(x?.type || "").toUpperCase();
+  if (t === "OBJECT") return Object.fromEntries(Object.entries(x.properties ?? {}).map(([k, v]) => [k, exampleOf(v)]));
+  if (t === "ARRAY") return [exampleOf(x.items)];
+  if (t === "NUMBER") return 0;
+  if (t === "BOOLEAN") return false;
+  return x?.enum ? x.enum.join("|") : "…";
+}
+/** Приводит ответ к схеме: недостающие поля — значения по умолчанию, числа — числа. */
+function conform(x: any, v: any): any {
+  const t = String(x?.type || "").toUpperCase();
+  if (t === "OBJECT") {
+    const o = v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    return Object.fromEntries(Object.entries(x.properties ?? {}).map(([k, sx]) => [k, conform(sx, o[k])]));
+  }
+  if (t === "ARRAY") return Array.isArray(v) ? v.map((i) => conform(x.items, i)) : [];
+  if (t === "NUMBER") { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+  if (t === "BOOLEAN") return v === true || v === "true";
+  const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+  return x?.enum && !x.enum.includes(s) ? x.enum[Math.min(1, x.enum.length - 1)] : s;
+}
+function parseLoose(text: string) {
+  const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  try { return JSON.parse(t); } catch { /* ниже */ }
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch { /* ниже */ } }
+  throw new Error("bad json");
+}
+const jsonRule = (schema: unknown) =>
+  `\n\nОТВЕТ: только один JSON-объект без пояснений и без markdown, строго такой структуры (все поля обязательны):\n${JSON.stringify(exampleOf(schema))}`;
+
+class Busy extends Error {}
+
+async function groqCall(blocks: Block[], system: string, schema: unknown, opts: AIOpts) {
+  const key = Deno.env.get("GROQ_API_KEY");
+  if (!key) throw new Busy("нет GROQ_API_KEY");
+  const vision = blocks.some((b) => b.image);
+  const content = vision
+    ? blocks.map((b) => b.image ? { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b.image}` } } : { type: "text", text: b.text ?? "" })
+    : blocks.map((b) => b.text ?? "").join("\n");
+  let last = "";
+  for (const model of vision ? GROQ_VISION : GROQ_TEXT) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const body: Record<string, unknown> = {
+        model, max_tokens: opts.maxTokens ?? 3000, response_format: { type: "json_object" },
+        messages: [{ role: "system", content: system + jsonRule(schema) }, { role: "user", content }],
+      };
+      if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = opts.effort ?? "low";
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const txt = await r.text();
+      if (r.ok) {
+        const d = JSON.parse(txt);
+        console.log("groq", model, JSON.stringify(d.usage ?? {}));
+        try { return conform(schema, parseLoose(d.choices?.[0]?.message?.content ?? "")); }
+        catch { last = `${model}: bad json`; continue; }
+      }
+      last = `${model}: ${r.status} ${txt.slice(0, 200)}`;
+      console.error("groq", last);
+      if (r.status === 429) {
+        const wait = Number(r.headers.get("retry-after")) || Number((txt.match(/try again in ([\d.]+)s/) || [])[1]) || 0;
+        if (attempt === 0 && wait > 0 && wait <= 35) { await sleep(wait * 1000 + 300); continue; }
+      }
+      break; // к следующей модели
+    }
+  }
+  throw new Busy(last);
+}
+
+async function cfCall(blocks: Block[], system: string, schema: unknown, opts: AIOpts) {
+  const id = Deno.env.get("CLOUDFLARE_ACCOUNT_ID"), tok = Deno.env.get("CLOUDFLARE_API_TOKEN");
+  if (!id || !tok) throw new Busy("нет Cloudflare");
+  const content = blocks.map((b) => b.image ? { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b.image}` } } : { type: "text", text: b.text ?? "" });
+  let last = "";
+  for (const model of CF_VISION) {
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${id}/ai/run/${model}`, {
+      method: "POST", headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ max_tokens: (opts.maxTokens ?? 2000) + 1500, messages: [{ role: "system", content: system + jsonRule(schema) }, { role: "user", content }] }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const res = d.result ?? {};
+      const text = typeof res.response === "string" ? res.response : res.choices?.[0]?.message?.content ?? "";
+      try { return conform(schema, parseLoose(text || "")); } catch { last = `${model}: bad json`; continue; }
+    }
+    last = `${model}: ${r.status} ${JSON.stringify(d.errors ?? d).slice(0, 200)}`;
+    console.error("cf", last);
+  }
+  throw new Busy(last);
+}
+
+/** Единая точка вызова ИИ. */
+async function ai(blocks: Block[], system: string, schema: unknown, opts: AIOpts = {}) {
+  if (Deno.env.get("ANTHROPIC_API_KEY")) return await claudeCall(blocks, system, schema, opts);
+  try { return await groqCall(blocks, system, schema, opts); }
+  catch (e) {
+    if (!(e instanceof Busy)) throw e;
+    if (blocks.some((b) => b.image)) {
+      try { return await cfCall(blocks, system, schema, opts); } catch (e2) { if (!(e2 instanceof Busy)) throw e2; }
+    }
+    throw new Error("Бесплатный ИИ сейчас перегружен или закончился дневной лимит. Попробуй через несколько минут.");
+  }
 }
 
 /* ---------------- навыки ---------------- */
@@ -152,7 +291,7 @@ const DAY = OBJ({
   day: NUM, title: STR, what: STR, resource: RESOURCE, deliverable: STR, why: STR, minutes: NUM, rest: BOOL,
 });
 
-const SKILL_KINDS: Record<string, { schema: unknown; prompt: (c: Record<string, unknown>) => string; temp?: number }> = {
+const SKILL_KINDS: Record<string, { schema: unknown; prompt: (c: Record<string, unknown>) => string; temp?: number; max?: number }> = {
   clarify: {
     schema: OBJ({ vague: BOOL, questions: ARR(STR), suggestion: STR }),
     prompt: (c) => `Человек хочет освоить навык. Его ответы:
@@ -171,6 +310,7 @@ hint — подсказка, что можно ответить «не знаю�
   },
   plan: {
     temp: 0.5,
+    max: 16000,
     schema: OBJ({
       skill_name: STR,
       profile: OBJ({ level: STR, level_note: STR, strengths: ARR(STR), weak: ARR(STR), main_risk: STR, motivation: STR }),
@@ -233,6 +373,7 @@ next — что развивать дальше (1–2 предложения), 
   },
   adapt: {
     temp: 0.5,
+    max: 6000,
     schema: OBJ({ note: STR, days: ARR(DAY) }),
     prompt: (c) => `Человек оценил, как идёт обучение. Перестрой следующие дни плана (те же номера дней, что в remaining) под его отзыв.
 Данные: ${JSON.stringify(c)}
@@ -244,10 +385,21 @@ next — что развивать дальше (1–2 предложения), 
 async function skillAI(kind: string, ctx: Record<string, unknown>, image?: string) {
   const k = SKILL_KINDS[kind];
   if (!k) throw new Error("unknown skill kind");
-  const parts: unknown[] = [];
-  if (image) parts.push({ inline_data: { mime_type: "image/jpeg", data: image } });
+  const parts: Block[] = [];
+  if (image) parts.push({ image });
   parts.push({ text: k.prompt(ctx) });
-  return await gemini(parts, MENTOR, k.schema, k.temp ?? 0.3);
+  const opts: AIOpts = { effort: kind === "plan" ? "medium" : "low", maxTokens: k.max ?? 3000 };
+  // Бесплатный Groq ограничен по токенам в минуту — план на 30 дней собираем из двух половин.
+  if (kind === "plan" && !Deno.env.get("ANTHROPIC_API_KEY")) {
+    const first = await ai([{ text: k.prompt(ctx) + "\n\nСЕЙЧАС: верни профиль, финальный проект, 4 недели и ТОЛЬКО дни 1–15 (days = 15 элементов)." }],
+      MENTOR, k.schema, { effort: "medium", maxTokens: 9000 });
+    const rest = await ai([{ text: k.prompt(ctx) + `\n\nУже готово: ${JSON.stringify({ skill_name: first.skill_name, final_project: first.final_project, weeks: first.weeks,
+      days_1_15: (first.days || []).map((d: any) => d.title) })}\nСЕЙЧАС: верни ТОЛЬКО дни 16–30 (15 элементов), продолжая логику недель 3–4 и подводя к финальному проекту.` }],
+      MENTOR, OBJ({ days: ARR(DAY) }), { effort: "medium", maxTokens: 9000 });
+    first.days = [...(first.days || []).slice(0, 15), ...(rest.days || [])];
+    return first;
+  }
+  return await ai(parts, MENTOR, k.schema, opts);
 }
 
 /* ---------------- обработчик ---------------- */
@@ -308,7 +460,7 @@ Deno.serve(async (req) => {
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Используй ручной ввод.`, 429);
         await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
-        const res = await gemini(imageParts(image, String(b.hint ?? "").slice(0, 300)));
+        const res = await ai(imageParts(image, String(b.hint ?? "").slice(0, 300)), SYSTEM, SCHEMA, { maxTokens: 2000 });
         return json({ ...res, photos_left: limit - used - 1 });
       }
       case "estimate": {
@@ -321,7 +473,7 @@ Deno.serve(async (req) => {
         const used = p.text_day === day ? p.text_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} расчётов в день исчерпан. Введи КБЖУ вручную.`, 429);
         await db.from("players").update({ text_day: day, text_count: used + 1 }).eq("id", p.id);
-        const res = await gemini([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM);
+        const res = await ai([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM, SCHEMA, { maxTokens: 1500 });
         return json(res);
       }
       case "skill": {
@@ -358,3 +510,6 @@ Deno.serve(async (req) => {
     return fail(e instanceof Error ? e.message : "Ошибка сервера", 500);
   }
 });
+
+// для проверки в CI (.github/workflows/test-ai.yml)
+export { ai, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts };
