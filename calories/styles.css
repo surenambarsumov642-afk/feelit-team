@@ -581,3 +581,28 @@ body.shake #app,body.shake .sys{animation:bigshake .6s cubic-bezier(.36,.07,.19,
 #app.enter > *{animation:fadeup .35s ease both}
 #app.enter > *:nth-child(2){animation-delay:.04s}#app.enter > *:nth-child(3){animation-delay:.08s}#app.enter > *:nth-child(4){animation-delay:.12s}
 .sys.rank .btn,.sys[class*="rar-"] .btn{border-color:var(--fx);color:#fff;background:color-mix(in srgb,var(--fx) 16%,transparent);box-shadow:0 0 18px color-mix(in srgb,var(--fx) 50%,transparent)}
+
+/* ============ уровни навыка и «Выход в мир» ============ */
+.sk-chain{padding:4px 0 12px;border-bottom:1px solid rgba(143,107,255,.18);margin-bottom:8px}
+.sk-chain:last-child{border-bottom:0;margin-bottom:0}
+.up-an{margin-top:14px;padding:12px;border:1px solid rgba(143,107,255,.45);background:rgba(20,12,44,.6);text-align:left;max-height:40vh;overflow:auto}
+.world-hero{border-color:rgba(255,194,74,.55);box-shadow:0 0 26px rgba(255,194,74,.18);background:linear-gradient(160deg,rgba(60,40,8,.35),rgba(10,16,32,.85))}
+.world-hero .tag-sys{color:#ffd77a;border-color:#ffc24a}
+.world-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;text-align:center}
+.world-stats b{display:block;font-family:"Russo One",sans-serif;font-size:19px;color:#fff;text-shadow:0 0 10px rgba(255,194,74,.6)}
+.world-stats span{font-size:10.5px;color:var(--muted)}
+.win.locked{opacity:.45;filter:grayscale(.6)}
+.wq{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(80,170,255,.1)}
+.wq:last-child{border-bottom:0}
+.wq-c{width:24px;height:24px;flex:none;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;font-size:12px;color:var(--muted)}
+.wq.done .wq-c{border-color:#ffc24a;color:#ffd77a;box-shadow:0 0 10px rgba(255,194,74,.5)}
+.wq.done .wq-n{color:#ffd77a}
+.wq-n{font-size:14px}
+.wm{padding:8px 0;border-bottom:1px solid rgba(143,107,255,.15)}
+.msg{padding:10px;margin:6px 0;border:1px solid rgba(143,107,255,.3);background:rgba(20,12,44,.45)}
+.msg .btn{margin-top:6px}
+.chat{max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+.bub{max-width:85%;padding:9px 12px;border-radius:12px;font-size:14px;line-height:1.4;animation:fadeup .25s ease both}
+.bub.client{align-self:flex-start;background:rgba(40,56,90,.75);border:1px solid var(--line)}
+.bub.me{align-self:flex-end;background:rgba(143,107,255,.28);border:1px solid rgba(183,156,255,.5)}
+.st-deal{color:#ffd77a}.st-no{color:var(--bad)}.st-replied,.st-talk{color:var(--cyan)}
