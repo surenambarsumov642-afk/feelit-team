@@ -724,6 +724,68 @@ Deno.serve(async (req) => {
         }
         return json({ sent });
       }
+      case "live_create": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const opp = String(b.opponent ?? ""), exercise = String(b.exercise ?? "push");
+        if (!["push", "squat", "abs"].includes(exercise)) return fail("Неизвестное упражнение");
+        if (opp === p.id) return fail("Нельзя вызвать самого себя");
+        const { data: o } = await db.from("players").select("id,name").eq("id", opp).maybeSingle();
+        if (!o) return fail("Соперник не найден");
+        const since = new Date(Date.now() - 10 * 60e3).toISOString();
+        const { data: ex } = await db.from("live_duels").select("id").in("status", ["pending", "active"]).gte("created_at", since)
+          .or(`and(a.eq.${p.id},b.eq.${opp}),and(a.eq.${opp},b.eq.${p.id})`);
+        if (ex && ex.length) return fail("Живая дуэль с этим охотником уже идёт");
+        const { data: d, error } = await db.from("live_duels").insert({ a: p.id, b: opp, exercise }).select("id").single();
+        if (error) return fail("Не удалось создать дуэль", 500);
+        const exn = { push: "отжимания", squat: "приседания", abs: "скручивания" }[exercise];
+        pushTo(opp, "⚡ Живая дуэль", `${p.name} вызывает тебя: ${exn} на 60 секунд. Открой ARISE → Рейтинг → Дуэли.`, "live").catch(() => {});
+        return json({ id: d.id });
+      }
+      case "live_respond": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { data: d } = await db.from("live_duels").select("*").eq("id", String(b.id ?? "")).maybeSingle();
+        if (!d || d.b !== p.id || d.status !== "pending") return fail("Вызов не найден");
+        if (Date.now() - new Date(d.created_at).getTime() > 10 * 60e3) { await db.from("live_duels").update({ status: "expired" }).eq("id", d.id); return fail("Вызов устарел"); }
+        if (b.accept) await db.from("live_duels").update({ status: "active", start_at: new Date(Date.now() + 30e3).toISOString() }).eq("id", d.id);
+        else await db.from("live_duels").update({ status: "declined" }).eq("id", d.id);
+        return json({ ok: true });
+      }
+      case "live_update": case "live_state": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { data: d } = await db.from("live_duels").select("*").eq("id", String(b.id ?? "")).maybeSingle();
+        if (!d || (d.a !== p.id && d.b !== p.id)) return fail("Дуэль не найдена");
+        const now = Date.now(), end = d.start_at ? new Date(d.start_at).getTime() + d.seconds * 1000 : 0;
+        if (b.action === "live_update" && d.status === "active" && now >= new Date(d.start_at).getTime() && now <= end + 5000) {
+          const col = d.a === p.id ? "a_reps" : "b_reps", reps = int(b.reps, 0, 300);
+          if (reps > d[col]) { await db.from("live_duels").update({ [col]: reps }).eq("id", d.id); d[col] = reps; }
+        }
+        if (d.status === "active" && now > end + 4000) {
+          const winner = d.a_reps === d.b_reps ? null : d.a_reps > d.b_reps ? d.a : d.b;
+          await db.from("live_duels").update({ status: "done", winner }).eq("id", d.id);
+          d.status = "done"; d.winner = winner;
+          if (winner) await postEvent(winner, "duel", `победил в живой дуэли: ${Math.max(d.a_reps, d.b_reps)} против ${Math.min(d.a_reps, d.b_reps)}`);
+        }
+        if (d.status === "pending" && now - new Date(d.created_at).getTime() > 10 * 60e3) { d.status = "expired"; await db.from("live_duels").update({ status: "expired" }).eq("id", d.id); }
+        const { data: ns } = await db.from("players").select("id,name").in("id", [d.a, d.b]);
+        const nm = Object.fromEntries((ns ?? []).map((x) => [x.id, x.name]));
+        return json({ duel: { ...d, a_name: nm[d.a], b_name: nm[d.b] }, server_now: now });
+      }
+      case "live_list": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const since = new Date(Date.now() - 24 * 3600e3).toISOString();
+        const { data: list } = await db.from("live_duels").select("*").or(`a.eq.${p.id},b.eq.${p.id}`).gte("created_at", since)
+          .not("status", "in", "(declined,expired)").order("created_at", { ascending: false }).limit(10);
+        const ids = [...new Set((list ?? []).flatMap((d) => [d.a, d.b]))];
+        const { data: ns } = ids.length ? await db.from("players").select("id,name").in("id", ids) : { data: [] };
+        const nm = Object.fromEntries((ns ?? []).map((x) => [x.id, x.name]));
+        const now = Date.now();
+        return json({ live: (list ?? []).filter((d) => !(d.status === "pending" && now - new Date(d.created_at).getTime() > 10 * 60e3))
+          .map((d) => ({ ...d, a_name: nm[d.a], b_name: nm[d.b] })), server_now: now });
+      }
       case "rename": {
         const p = await playerByToken(b.token);
         if (!p) return fail("Неверный код игрока", 401);

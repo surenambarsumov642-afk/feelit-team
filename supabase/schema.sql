@@ -100,3 +100,20 @@ alter table public.push_subs enable row level security;
 
 alter table public.players add column if not exists skill_state text not null default 'none';
 alter table public.players add column if not exists skill_date date;
+
+-- этап 4b: живые дуэли (60 секунд, камера)
+create table if not exists public.live_duels (
+  id uuid primary key default gen_random_uuid(),
+  a uuid not null references public.players(id) on delete cascade,
+  b uuid not null references public.players(id) on delete cascade,
+  exercise text not null,
+  seconds int not null default 60,
+  stake int not null default 50,
+  status text not null default 'pending',
+  start_at timestamptz,
+  a_reps int not null default 0,
+  b_reps int not null default 0,
+  winner uuid,
+  created_at timestamptz not null default now()
+);
+alter table public.live_duels enable row level security;

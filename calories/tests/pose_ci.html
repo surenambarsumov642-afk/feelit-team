@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>pose ci</title>
+<script type="module">
+import { angle, EXERCISES } from "../repcount.js";
+const vision = await import("../vendor/mediapipe/vision_bundle.mjs");
+const files = await vision.FilesetResolver.forVisionTasks(new URL("../vendor/mediapipe/wasm", location.href).href);
+const lm = await vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: new URL("../vendor/mediapipe/pose_landmarker_lite.task", location.href).href, delegate: "CPU" }, runningMode: "IMAGE", numPoses: 1 });
+window.analyze = async (b64, kind) => {
+  const img = new Image(); img.src = "data:image/jpeg;base64," + b64; await img.decode();
+  const res = lm.detect(img); const p = res.landmarks?.[0];
+  if (!p) return { found: false };
+  const ex = EXERCISES[kind], vis = s => ex.need(s).reduce((a, i) => a + (p[i].visibility ?? 0), 0);
+  const L = { S: 11, E: 13, W: 15, H: 23, K: 25, A: 27 }, R = { S: 12, E: 14, W: 16, H: 24, K: 26, A: 28 };
+  const side = vis(L) >= vis(R) ? L : R, [a, bb, c] = ex.side(side);
+  const minVis = Math.min(...ex.need(side).map(i => p[i].visibility ?? 0));
+  return { found: true, angle: Math.round(angle(p[a], p[bb], p[c], img.width / img.height)), hint: minVis < 0.5 ? "часть тела плохо видна" : "" };
+};
+document.title = "ready";
+</script>

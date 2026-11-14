@@ -124,3 +124,5 @@ export function openCamera(o) {
   return { stop };
 }
 export const CAMERA_KINDS = Object.keys(EXERCISES);
+/** Заранее скачать и запустить модель позы (перед живой дуэлью). */
+export const preloadPose = () => getLandmarker().catch(() => {});
