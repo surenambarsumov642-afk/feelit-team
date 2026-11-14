@@ -1530,7 +1530,7 @@ function openNewProduct(code, date, meal) {
         const r = await api("barcode_label", { token: S.player.token, image: drawScaled(img, 1400, 0.85).split(",")[1] });
         if (!r.found) toast("Не удалось прочитать таблицу. Попробуй крупнее или введи сам.", true);
         else {
-          if (r.name && !g("np-n").value) g("np-n").value = r.name;
+          if (r.name && !/без назв|неизвест/i.test(r.name) && !g("np-n").value) g("np-n").value = r.name;
           g("np-k").value = r0(r.kcal); g("np-p").value = r1(r.protein); g("np-f").value = r1(r.fat); g("np-c").value = r1(r.carbs);
           if (r.serving > 0) g("np-s").value = r0(r.serving);
           toast("Готово. Сверь цифры с этикеткой.");
