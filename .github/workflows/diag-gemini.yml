@@ -1,6 +1,10 @@
 # Диагностика ключа и моделей Gemini (запуск вручную). Ключ в логах скрыт GitHub.
 name: Проверить Gemini
-on: { workflow_dispatch: {} }
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/diag-gemini.yml"]
 jobs:
   diag:
     runs-on: ubuntu-latest
