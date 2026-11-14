@@ -884,7 +884,7 @@ Deno.serve(async (req) => {
       case "barcode_label": {
         const p = await playerByToken(b.token);
         if (!p) return fail("Неверный код игрока", 401);
-        const image = String(b.image ?? "");
+        const image = String(b.image ?? "").replace(/^data:[^,]*,/, "");
         if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
         const limit = int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000);
         const day = todayUTC5();

@@ -12,7 +12,7 @@ for (const code of ["3017620422003", "5449000000996", "4600494000105"]) {
 const file = Deno.args[0];
 if (file) {
   await new Promise((r) => setTimeout(r, 30000));
-  const image = `data:image/jpeg;base64,${encodeBase64(await Deno.readFile(file))}`;
+  const image = encodeBase64(await Deno.readFile(file));
   try {
     const r = await ai([{ image }, { text: "Прочитай таблицу пищевой ценности на этикетке." }], LABEL_SYSTEM, LABEL_SCHEMA, { maxTokens: 800 });
     console.log("этикетка →", JSON.stringify(r));

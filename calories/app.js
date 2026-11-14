@@ -1527,7 +1527,7 @@ function openNewProduct(code, date, meal) {
       const btn = g("np-photo"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> ИИ читает этикетку…`;
       try {
         const img = await loadImage(f);
-        const r = await api("barcode_label", { token: S.player.token, image: drawScaled(img, 1400, 0.85) });
+        const r = await api("barcode_label", { token: S.player.token, image: drawScaled(img, 1400, 0.85).split(",")[1] });
         if (!r.found) toast("Не удалось прочитать таблицу. Попробуй крупнее или введи сам.", true);
         else {
           if (r.name && !g("np-n").value) g("np-n").value = r.name;
