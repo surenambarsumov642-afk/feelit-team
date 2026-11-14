@@ -1,0 +1,22 @@
+# Диагностика ключа и моделей Gemini (запуск вручную). Ключ в логах скрыт GitHub.
+name: Проверить Gemini
+on: { workflow_dispatch: {} }
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Доступные модели
+        run: |
+          curl -sS "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" -H "x-goog-api-key: $KEY" -o models.json -w "HTTP %{http_code}\n"
+          jq -r '.error.message // empty' models.json
+          jq -r '.models[]?.name' models.json | grep -iE "flash|pro" | head -40
+      - name: Пробный запрос с JSON-схемой
+        run: |
+          BODY='{"contents":[{"role":"user","parts":[{"text":"Скажи привет"}]}],"generationConfig":{"responseMimeType":"application/json","responseSchema":{"type":"OBJECT","properties":{"vague":{"type":"BOOLEAN"},"questions":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["vague","questions"]},"temperature":0.3,"maxOutputTokens":16000}}'
+          for m in gemini-flash-latest gemini-2.5-flash gemini-flash-lite-latest gemini-2.5-flash-lite gemini-3-flash gemini-3.5-flash gemini-3.1-flash-lite; do
+            code=$(curl -sS -o out.json -w "%{http_code}" -X POST "https://generativelanguage.googleapis.com/v1beta/models/$m:generateContent" \
+              -H "Content-Type: application/json" -H "x-goog-api-key: $KEY" -d "$BODY")
+            echo "== $m: HTTP $code"; jq -c '.error // .candidates[0].content.parts' out.json | head -c 400; echo
+          done
