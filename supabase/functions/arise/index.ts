@@ -318,6 +318,19 @@ function conform(x: any, v: any): any {
   const s = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
   return x?.enum && !x.enum.includes(s) ? x.enum[Math.min(1, x.enum.length - 1)] : s;
 }
+/** Если модель обернула ответ ({"map": {...}}), достаём вложенный объект, где больше всего полей схемы. */
+function unwrap(x: any, v: any): any {
+  if (String(x?.type || "").toUpperCase() !== "OBJECT" || !v || typeof v !== "object" || Array.isArray(v)) return v;
+  const keys = Object.keys(x.properties ?? {}), hits = (o: any) => o && typeof o === "object" && !Array.isArray(o) ? keys.filter((k) => k in o).length : 0;
+  let best = v, bestN = hits(v);
+  for (const a of Object.values(v)) {
+    if (hits(a) > bestN) { best = a; bestN = hits(a); }
+    if (a && typeof a === "object") for (const b of Object.values(a as object)) if (hits(b) > bestN) { best = b; bestN = hits(b); }
+  }
+  return best;
+}
+/** Ответ «пустой»: все массивы пустые и все строки пустые — значит, модель ответила не по схеме. */
+const looksEmpty = (v: any) => v && typeof v === "object" && Object.values(v).every((x) => (Array.isArray(x) ? !x.length : x === "" || x === 0 || x === false));
 function parseLoose(text: string) {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
   try { return JSON.parse(t); } catch { /* ниже */ }
@@ -352,8 +365,12 @@ async function groqCall(blocks: Block[], system: string, schema: unknown, opts: 
       if (r.ok) {
         const d = JSON.parse(txt);
         console.log("groq", model, JSON.stringify(d.usage ?? {}));
-        try { return conform(schema, parseLoose(d.choices?.[0]?.message?.content ?? "")); }
-        catch { last = `${model}: bad json`; continue; }
+        const raw = d.choices?.[0]?.message?.content ?? "";
+        try {
+          const res = conform(schema, unwrap(schema, parseLoose(raw)));
+          if (looksEmpty(res)) { console.error("groq empty", model, raw.slice(0, 400)); last = `${model}: empty`; if (attempt === 0) continue; break; }
+          return res;
+        } catch { last = `${model}: bad json`; continue; }
       }
       last = `${model}: ${r.status} ${txt.slice(0, 200)}`;
       console.error("groq", last);
@@ -381,7 +398,7 @@ async function cfCall(blocks: Block[], system: string, schema: unknown, opts: AI
     if (r.ok) {
       const res = d.result ?? {};
       const text = typeof res.response === "string" ? res.response : res.choices?.[0]?.message?.content ?? "";
-      try { return conform(schema, parseLoose(text || "")); } catch { last = `${model}: bad json`; continue; }
+      try { return conform(schema, unwrap(schema, parseLoose(text || ""))); } catch { last = `${model}: bad json`; continue; }
     }
     last = `${model}: ${r.status} ${JSON.stringify(d.errors ?? d).slice(0, 200)}`;
     console.error("cf", last);
@@ -435,7 +452,9 @@ suggestion — переформулированная конкретная це�
     prompt: (c) => `Составь практическую мини-проверку текущего уровня человека по навыку. Данные: ${JSON.stringify(c)}
 Нужно 3 задания, на каждое можно ответить текстом с телефона за 1–2 минуты. Не спрашивай «оцени себя» — проверяй реальные знания и умения:
 1) базовое понимание; 2) маленькое практическое задание (например, написать промпт/набросать решение/объяснить шаги); 3) вопрос посложнее.
-hint — подсказка, что можно ответить «не знаю», если не знает. Учитывай, что человек может быть полным новичком.`,
+hint — подсказка, что можно ответить «не знаю», если не знает. Учитывай, что человек может быть полным новичком.
+Если в данных есть upgrade (это входной тест на следующий уровень после месяца обучения): 1) проверь остаточные знания по ключевым темам прошлого месяца;
+2) задание прицельно на слабые места (gaps); 3) задание уровнем выше прошлого финального проекта — чтобы понять потолок.`,
   },
   plan: {
     temp: 0.5,
@@ -464,7 +483,17 @@ ${JSON.stringify(c)}
 - День 30 — защита финального проекта (deliverable = сам проект).
 - Дни из списка rest_days: rest=true, лёгкое задание на 10 минут (повторение), без нового материала. Остальные rest=false.
 - Только бесплатные инструменты, если бюджет 0. Учитывай устройство (телефон/компьютер).
-- Задания должны усложняться, повторять важное (интервальное повторение) и постоянно работать на финальный проект.`,
+- Задания должны усложняться, повторять важное (интервальное повторение) и постоянно работать на финальный проект.
+Если есть upgrade (не первый месяц, level — номер уровня):
+- skill_name — то же название навыка (без номера уровня), при новой ветке — «навык: ветка».
+- Не повторяй пройденное: опирайся на previous (итоги прошлого месяца, слабые места, отзыв о финальном проекте, дневник) и входной тест.
+- mode="upgrade": новый уровень. direction: «deeper» — глубже в том же; «branch» — новая ветка (branch); «money» — навык как источник дохода
+  (портфолио, упаковка услуги, первые клиенты — без обещаний дохода и спама).
+- mode="consolidate": месяц закрепления — те же цели прошлого уровня, упор на слабые места и практику, без нового материала сверху.
+- mode="recover": месяц восстановления после перерыва — мягкий вход (первая неделя — повторение), потом рост.
+- final_project ЗАМЕТНО сложнее previous.final_project (кроме consolidate/recover) и, если указан external_result, — с внешним результатом
+  (для другого человека/бизнеса, публикация, заказ). Критерии строже.
+- Учти, что изменилось в жизни (life) и новое время.`,
   },
   regen_day: {
     temp: 0.5,
@@ -508,6 +537,60 @@ next — что развивать дальше (1–2 предложения), 
 Данные: ${JSON.stringify(c)}
 Если «тяжело» — меньше объём, проще шаги, больше быстрых побед, но не меняй цель. Если «легко» — сложнее и глубже.
 Если «норм» — только учти комментарий. Сохрани дни босса (7/14/21/28), день 30 и rest-дни. note — 1 фраза, что изменилось.`,
+  },
+  upgrade_analysis: {
+    max: 1500,
+    temp: 0.4,
+    schema: OBJ({ summary: STR, wins: ARR(STR), gaps: ARR(STR), branches: ARR(STR), advice: STR }),
+    prompt: (c) => `Ты — «Система» в приложении саморазвития. Человек закончил месяц обучения навыку и хочет перейти дальше.
+Данные прошлого месяца (освоение, выполненные дни, боссы со слабыми темами, финальный проект и отзыв, дневник, перерыв, режим допуска): ${JSON.stringify(c)}
+summary — честный разбор месяца в 2–3 предложениях, обращаясь на «ты», в тоне Системы (строго, по делу, без лести).
+wins — 2–3 конкретных достижения. gaps — 2–4 конкретных слабых места (темы/умения), а не общие слова.
+branches — 3 возможные ветки развития навыка (коротко, 2–5 слов каждая). advice — одна фраза: что главное на следующий месяц.
+Если mode="consolidate" — объясни, что освоение ниже 60%, поэтому сначала месяц закрепления. Если "recover" — что был долгий перерыв.`,
+  },
+  world_map: {
+    temp: 0.5,
+    max: 7000,
+    schema: OBJ({
+      who: ARR(OBJ({ who: STR, pain: STR, where: STR })),
+      services: ARR(OBJ({ name: STR, price: STR, time: STR })),
+      portfolio: ARR(STR), offer: STR,
+      messages: ARR(OBJ({ to: STR, text: STR })),
+      first_steps: ARR(STR), warning: STR,
+    }),
+    prompt: (c) => `Составь «карту применения» навыка: как человеку начать применять его для других людей и зарабатывать. Данные: ${JSON.stringify(c)}
+Рынок по умолчанию: город человека (обычно Ташкент) + удалёнка в русскоязычном интернете. Будь конкретным и реалистичным для его уровня.
+who — 4–6 типов клиентов: кто (конкретно: «кофейни у дома», «мастера маникюра в Instagram»), их боль, где их искать (Instagram, Telegram-чаты, OLX, знакомые и т.д.).
+services — 3–4 услуги, которые он уже может делать на своём уровне, ориентир цены (в сумах и/или $, честно для новичка) и сколько времени занимает.
+portfolio — 3 конкретные работы для портфолио, которые можно сделать без клиента. offer — короткое предложение услуги (3–4 предложения) от первого лица.
+messages — 3 готовых первых сообщения разным типам клиентов: вежливо, коротко, с конкретной пользой и без навязывания (человек отправляет сам).
+first_steps — 3–5 шагов на ближайшую неделю. warning — одна фраза: никаких обещаний дохода, никакого спама, честно о своём уровне.
+Всё на русском.`,
+  },
+  client_sim: {
+    max: 500,
+    temp: 0.8,
+    schema: OBJ({ reply: STR, done: BOOL }),
+    prompt: (c) => `Ты играешь роль потенциального клиента в тренажёре переговоров. Навык и услуга человека: ${JSON.stringify(c.service)}.
+Твой персонаж: ${JSON.stringify(c.persona)}. Это реалистичный клиент из Ташкента: немного сомневается, спрашивает цену и сроки, может торговаться,
+просит примеры работ, иногда возражает («дорого», «а гарантии?», «мне племянник сделает»). Не будь слишком лёгким, но и не грубым.
+История диалога (client — ты, me — человек): ${JSON.stringify(c.history)}
+Напиши следующую реплику клиента (1–3 предложения, разговорный русский). done=true, если разговор логически закончен (договорились или ты окончательно отказался)
+или если в истории уже 7+ реплик человека.`,
+  },
+  client_grade: {
+    max: 1000,
+    schema: OBJ({ score: NUM, deal: BOOL, feedback: STR, better: ARR(STR) }),
+    prompt: (c) => `Оцени, как человек провёл переговоры с клиентом в тренажёре. Данные: ${JSON.stringify(c)}
+score 0–100: вежливость и уверенность, выяснил ли задачу клиента, назвал ли цену и сроки ясно, работал ли с возражениями, предложил ли следующий шаг.
+deal — договорились ли. feedback — 2–3 предложения честно. better — 2–3 конкретные фразы/приёма, которые стоило использовать.`,
+  },
+  debrief: {
+    max: 900,
+    schema: OBJ({ feedback: STR, lessons: ARR(STR), price_tip: STR }),
+    prompt: (c) => `Человек выполнил работу для клиента и делает разбор. Данные: ${JSON.stringify(c)}
+feedback — 2–3 предложения: что получилось, что важно исправить. lessons — 2–3 урока на следующий заказ. price_tip — стоит ли поднять цену и как (1 фраза, честно).`,
   },
 };
 

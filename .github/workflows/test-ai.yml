@@ -41,3 +41,5 @@ jobs:
           PY
       - name: Штрихкоды (Open Food Facts + этикетка)
         run: deno run -A supabase/tests/barcode_test.ts label.jpg
+      - name: Навыки ур. 2+ и «Выход в мир»
+        run: deno run -A supabase/tests/world_test.ts

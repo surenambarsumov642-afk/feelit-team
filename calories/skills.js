@@ -111,9 +111,20 @@ export function statusCard() {
 /* ============================ экран «Навыки» ============================ */
 let autoOpen = false; // сразу открыть интервью после анимации Врат
 
+let worldChain = null; // открыт экран «Выход в мир» для цепочки навыка
+export const openWorldView = chain => { worldChain = chain; X.render(); window.scrollTo(0, 0); };
+export const chainOf = s => s.chain || s.id;
+/** Последний завершённый уровень каждой цепочки навыка. */
+export function chainHeads() {
+  const out = {};
+  for (const s of finishedSkills()) { const c = chainOf(s); if (!out[c] || (s.level || 1) >= (out[c].level || 1)) out[c] = s; }
+  return Object.values(out);
+}
+
 export function renderSkills($app) {
   const S = X.S();
   if (!S.skills) S.skills = [];
+  if (worldChain && X.renderWorld) return X.renderWorld($app, worldChain, () => { worldChain = null; X.render(); window.scrollTo(0, 0); });
   const sk = activeSkill();
   if (!X.API_URL || !S.player) {
     $app.innerHTML = `<div class="screen-title"><h1>Навыки</h1></div><div class="win"><div class="small muted">Навыки работают через сервер: войди в рейтинг в Настройках.</div></div>`;
@@ -152,11 +163,21 @@ function renderGate($app, sk) {
       <div><b>⚔</b><span>Проверка каждой работы<br><small>разбор от Системы</small></span></div>
       <div><b>♛</b><span>Боссы и финальный проект<br><small>процент освоения и ранг</small></span></div>
     </div>
-    ${done.length ? `<div class="win violet mt"><div class="win-h">Освоенные навыки</div>${done.map(s => `<div class="ach got">
+    ${done.length ? `<div class="win violet mt"><div class="win-h">Освоенные навыки</div>${chainHeads().map(s => {
+        const hist = done.filter(x => chainOf(x) === chainOf(s) && x !== s).sort((a, b) => (a.level || 1) - (b.level || 1));
+        const m = upgradeMode(s);
+        return `<div class="sk-chain"><div class="ach got">
         <div class="ic">${masteryRank(s.mastery)}</div>
-        <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}</div><div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div></div></div>`).join("")}</div>` : ""}
+        <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}${s.mode && s.mode !== "upgrade" ? ` <span class="tiny muted">(${MODE_N[s.mode]})</span>` : ""}</div>
+          <div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div>
+          ${hist.length ? `<div class="tiny dim">${hist.map(h => `Ур. ${h.level}: ${h.mastery}%`).join(" · ")}</div>` : ""}</div></div>
+        <div class="grid2 mt">${sk ? `<button class="btn ghost sm" disabled>Сначала закончи текущий</button>` :
+          `<button class="btn violet sm" data-up="${s.id}">${m === "upgrade" ? `⬆ Улучшить до Ур. ${(s.level || 1) + 1}` : m === "consolidate" ? "⟳ Месяц закрепления" : "⟳ Месяц восстановления"}</button>`}
+          <button class="btn sm" data-world="${chainOf(s)}">🌍 Выход в мир</button></div></div>`; }).join("")}</div>` : ""}
     ${sk ? `<button class="btn ghost block mt" id="sk-drop">Отменить интервью</button>` : ""}`;
   $app.querySelector("#sk-open").onclick = () => sk ? openInterview(sk) : openGateAnimation();
+  $app.querySelectorAll("[data-up]").forEach(b => b.onclick = () => startUpgrade(X.S().skills.find(x => x.id === b.dataset.up)));
+  $app.querySelectorAll("[data-world]").forEach(b => b.onclick = () => openWorldView(b.dataset.world));
   const dr = $app.querySelector("#sk-drop");
   if (dr) dr.onclick = () => { if (!confirm("Отменить интервью? Ответы удалятся.")) return; X.S().skills = X.S().skills.filter(s => s !== sk); X.save(); X.render(); };
 }
@@ -204,6 +225,66 @@ function openGateAnimation() {
   }, 900);
 }
 
+/* ---------- повышение уровня навыка ---------- */
+const MODE_N = { upgrade: "новый уровень", consolidate: "закрепление", recover: "восстановление" };
+/** Допуск: освоение ≥ 60% → новый уровень; иначе закрепление; перерыв > 60 дней → восстановление. */
+export function upgradeMode(prev) {
+  const gap = prev.doneAt ? daysBetween(prev.doneAt, X.today()) : 0;
+  if (gap > 60) return "recover";
+  return (prev.mastery || 0) >= 60 ? "upgrade" : "consolidate";
+}
+/** Сводка прошлого месяца — коротко, чтобы влезть в лимиты бесплатного ИИ. */
+function prevSummary(prev) {
+  const st = skillStats(prev);
+  return {
+    skill: prev.plan.skill_name, level: prev.level || 1, goal: prev.answers.goalFinal || prev.answers.result,
+    mastery: prev.mastery, done: `${st.done}/${st.need}`, missed_days: st.missed.length,
+    bosses: Object.values(prev.bosses || {}).filter(b => b.grade).map(b => ({ title: b.boss && b.boss.title, score: Math.round(b.grade.score), weak: b.grade.weak })),
+    final_project: prev.plan.final_project.title, final_score: prev.final && prev.final.grade ? Math.round(prev.final.grade.score) : null,
+    final_feedback: prev.final && prev.final.grade ? prev.final.grade.feedback : "", next_advice: prev.final && prev.final.grade ? prev.final.grade.next : "",
+    weak: prev.plan.profile.weak, journal: (prev.journal || []).slice(-6).map(j => j.text.slice(0, 160)),
+    gap_days: prev.doneAt ? daysBetween(prev.doneAt, X.today()) : 0,
+  };
+}
+function startUpgrade(prev) {
+  if (!prev) return;
+  const mode = upgradeMode(prev), level = mode === "upgrade" ? (prev.level || 1) + 1 : (prev.level || 1);
+  const ov = document.createElement("div");
+  ov.className = "gate-ov";
+  ov.innerHTML = `<div class="gate-ov-in">${gateHtml(true)}</div><div class="gate-flash"></div>
+    <div class="gate-msg"><div class="tag-sys">${mode === "upgrade" ? `УРОВЕНЬ ${level}` : MODE_N[mode].toUpperCase()}</div><p id="gm1"></p><p id="gm2"></p><div id="gm3"></div>
+    <button class="btn-epic hidden" id="gm-go">Продолжить</button><button class="btn ghost hidden" id="gm-x" style="display:block;margin:12px auto 0">Не сейчас</button></div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add("on"));
+  const close = () => { ov.classList.add("out"); setTimeout(() => ov.remove(), 500); };
+  setTimeout(async () => {
+    ov.classList.add("flash");
+    await new Promise(r => setTimeout(r, 700));
+    ov.classList.add("talk");
+    await typeText(ov.querySelector("#gm1"), mode === "upgrade" ? "Ты прошёл первые Врата. За ними — следующие." :
+      mode === "consolidate" ? "Освоение ниже 60%. Система не пустит дальше, пока основа не станет крепкой." : "Ты долго не возвращался. Сила ослабла — но не исчезла.");
+    await typeText(ov.querySelector("#gm2"), "Система анализирует прошлый месяц…");
+    let an = null;
+    try { an = await ask("upgrade_analysis", { ...prevSummary(prev), mode }); }
+    catch (err) { ov.querySelector("#gm3").innerHTML = `<div class="small bad">${e(err.message)}</div>`; ov.querySelector("#gm-x").classList.remove("hidden"); ov.querySelector("#gm-x").onclick = close; return; }
+    ov.querySelector("#gm3").innerHTML = `<div class="up-an"><div class="small">${e(an.summary)}</div>
+      ${an.wins && an.wins.length ? `<div class="tiny mt"><span class="ok">Сильное:</span> ${an.wins.map(e).join(" · ")}</div>` : ""}
+      ${an.gaps && an.gaps.length ? `<div class="tiny"><span class="warn">Слабое:</span> ${an.gaps.map(e).join(" · ")}</div>` : ""}
+      <div class="tiny mt" style="color:var(--violet2)">${e(an.advice || "")}</div></div>`;
+    const go = ov.querySelector("#gm-go"), x = ov.querySelector("#gm-x");
+    go.classList.remove("hidden"); x.classList.remove("hidden"); x.onclick = close;
+    go.onclick = () => {
+      const S = X.S(), a = prev.answers;
+      const sk = { id: Date.now().toString(36), status: "interview", qi: 0, level, mode, chain: chainOf(prev), prev: prev.id, up: { analysis: an },
+        answers: { goal: prev.plan.skill_name, city: a.city, lang: a.lang, tone: a.tone, off: a.off || [], hard: a.hard || [], format: a.format || [],
+          wk: a.wk, we: a.we, free: a.free, device: a.device, budget: a.budget, dir: mode === "upgrade" ? "" : "deeper" },
+        tasks: {}, bosses: {}, cards: [], journal: [] };
+      S.skills.push(sk); X.save(); close();
+      autoOpen = true; X.render();
+    };
+  }, 900);
+}
+
 /* ---------- интервью: слайды ---------- */
 const chips = (name, list, sel, multi) => `<div class="chips-row">${list.map(v => {
   const [val, label] = Array.isArray(v) ? v : [v, v];
@@ -211,7 +292,27 @@ const chips = (name, list, sel, multi) => `<div class="chips-row">${list.map(v =
   return `<button class="chip-b ${on ? "on" : ""}" data-chip="${name}" data-val="${e(val)}">${e(label)}</button>`;
 }).join("")}</div>`;
 
+function upQuestions(sk) {
+  const a = sk.answers, Q = [], sec = s => ({ sec: s }), an = sk.up.analysis || {};
+  Q.push({ key: "used", ...sec("После месяца"), q: "Что из навыка ты применял после месяца? Где и для чего?", hint: "Конкретно. «Нигде» — тоже честный ответ.", type: "textarea" });
+  Q.push({ key: "stuck", ...sec("После месяца"), q: "Где застревал? Чего не хватило?", hint: an.gaps && an.gaps.length ? "Система видит: " + an.gaps.join(", ") + "." : "", type: "textarea" });
+  if (sk.mode === "upgrade") {
+    Q.push({ key: "dir", ...sec("Направление"), q: "Куда идём дальше?", type: "chips",
+      options: [["deeper", "Глубже — сильнее в том же"], ["branch", "Новая ветка навыка"], ["money", "Заработок — выйти в мир"]] });
+    if (a.dir === "branch") Q.push({ key: "branch", ...sec("Направление"), q: "Какая ветка?", hint: "Выбери или напиши свою.", type: "pick", options: an.branches || [] });
+  }
+  Q.push({ key: "external", ...sec("Цель уровня"), q: "Какой ВНЕШНИЙ результат хочешь через 30 дней?",
+    hint: "Не только для себя: работа для знакомого бизнеса, публикация, конкурс, первый заказ. Финальный проект будет заметно сложнее прошлого.", type: "textarea" });
+  Q.push({ key: "life", ...sec("Жизнь"), q: "Что изменилось в жизни за это время? Работа, график, силы?", hint: "Можно пропустить.", type: "textarea", optional: true });
+  Q.push({ key: "wk", ...sec("Время"), q: "Минут в день в будни — сейчас?", type: "chips", options: [["15", "15 мин"], ["30", "30 мин"], ["45", "45 мин"], ["60", "1 час"], ["90", "1,5 часа"], ["120", "2 часа"]] });
+  Q.push({ key: "we", ...sec("Время"), q: "А в выходные?", type: "chips", options: [["0", "Не буду"], ["15", "15 мин"], ["30", "30 мин"], ["60", "1 час"], ["90", "1,5 часа"], ["120", "2 часа"], ["180", "3 часа"]] });
+  Q.push({ key: "off", ...sec("Время"), q: "Дни отдыха от навыка?", hint: "До двух дней в неделю.", type: "multi", options: [["1", "Пн"], ["2", "Вт"], ["3", "Ср"], ["4", "Чт"], ["5", "Пт"], ["6", "Сб"], ["0", "Вс"]], optional: true, max: 2 });
+  Q.push({ key: "tone", ...sec("Стиль"), q: "Как Системе говорить с тобой в этом месяце?", type: "chips", options: TONES });
+  if (sk.diag && sk.diag.questions) sk.diag.questions.forEach((d, i) => Q.push({ key: "diag" + i, ...sec("Входной тест"), q: d.q, hint: (d.hint || "") + " Не знаешь — так и напиши.", type: "textarea", diag: i }));
+  return Q;
+}
 function questions(sk) {
+  if (sk.up) return upQuestions(sk);
   const a = sk.answers, Q = [];
   const sec = s => ({ sec: s });
   Q.push({ key: "goal", ...sec("Цель"), q: "Какой навык ты хочешь освоить?", hint: "Начни писать — Система подскажет. Можно своими словами.", type: "goal" });
@@ -275,6 +376,7 @@ function openInterview(sk) {
     if (q.type === "textarea") input = `<textarea class="in iv-in" id="iv-a" rows="4">${e(v || "")}</textarea>`;
     if (q.type === "chips") input = chips(q.key, q.options, v, false);
     if (q.type === "multi") input = chips(q.key, q.options, v || [], true);
+    if (q.type === "pick") input = `${chips(q.key, q.options, v, false)}<input class="in iv-in mt" id="iv-a" value="${e(v || "")}" placeholder="Своя ветка…" autocomplete="off">`;
     slide.innerHTML = `<div class="iv-tag">[ВОПРОС ${sk.qi + 1}]</div>
       <div class="iv-q" id="iv-q"></div>
       ${q.hint ? `<div class="iv-hint">${e(q.hint)}</div>` : ""}
@@ -311,6 +413,7 @@ function openInterview(sk) {
       } else {
         setA(sk, q, val);
         slide.querySelectorAll("[data-chip]").forEach(x => x.classList.toggle("on", x === c));
+        if (q.type === "pick") { if (inp) inp.value = val; X.save(); return; }
         X.save(); setTimeout(next, 280);
       }
       X.save();
@@ -333,7 +436,10 @@ function openInterview(sk) {
       if (q.key === "tone" && !sk.diag) {
         await withLoader("Система готовит проверку уровня…", async () => {
           const a = sk.answers;
-          sk.diag = await ask("diag", { skill: a.goal, goal: a.goalFinal || a.result, tried: a.tried, device: a.device });
+          sk.diag = await ask("diag", sk.up
+            ? { skill: a.goal, level: sk.level, device: a.device, upgrade: { previous: prevSummary(X.S().skills.find(x => x.id === sk.prev) || sk), gaps: sk.up.analysis.gaps,
+                direction: a.dir, branch: a.branch, external_result: a.external } }
+            : { skill: a.goal, goal: a.goalFinal || a.result, tried: a.tried, device: a.device });
           sk.diag.answers = [];
         });
         if (!sk.diag) return;
@@ -388,7 +494,15 @@ async function buildPlan(sk) {
   const start = X.addDays(X.today(), 1);
   const restDays = [];
   for (let n = 1; n <= 30; n++) if ((a.off || []).includes(String(X.parseD(X.addDays(start, n - 1)).getDay()))) restDays.push(n);
-  const plan = await ask("plan", {
+  const prev = sk.up ? X.S().skills.find(x => x.id === sk.prev) : null;
+  const plan = await ask("plan", sk.up ? {
+    skill: a.goal, level: sk.level, mode: sk.mode, direction: a.dir, branch: a.dir === "branch" ? a.branch : "", external_result: a.external,
+    upgrade: true, previous: prev ? { ...prevSummary(prev), journal: undefined } : null, analysis_gaps: sk.up.analysis.gaps,
+    used_after: a.used, stuck: a.stuck, life: a.life || "", minutes_weekday: a.wk, minutes_weekend: a.we, free_time: a.free, device: a.device, budget: a.budget,
+    materials_language: { ru: "только русский", sub: "английский с субтитрами", en: "свободно английский" }[a.lang], city: a.city,
+    formats: a.format, tone: (TONES.find(t => t[0] === a.tone) || TONES[1])[1], rest_days: restDays,
+    start_weekday: WD[X.parseD(start).getDay()], entry_test: sk.diag.questions.map((q, i) => ({ q: q.q, answer: (sk.diag.answers || [])[i] })),
+  } : {
     skill: a.goal, goal_30_days: a.goalFinal || a.result, why: a.why, success: a.success,
     clarifications: (a.clar && a.clar.questions || []).map((q, i) => ({ q, a: (a.clarAns || [])[i] })),
     tried: a.tried, hardest: a.hard, minutes_weekday: a.wk, minutes_weekend: a.we, free_time: a.free, device: a.device, budget: a.budget,
@@ -446,7 +560,7 @@ function renderPreview($app, sk) {
     el.querySelector("#ac-no").onclick = close;
     el.querySelector("#ac-yes").onclick = () => {
       sk.status = "active"; sk.start = X.addDays(X.today(), 1); sk.accepted = X.today(); X.save(); close(); X.render();
-      X.postEvent && X.postEvent("skill", `принял квест навыка «${p.skill_name}» на 30 дней`);
+      X.postEvent && X.postEvent("skill", sk.level > 1 ? `открыл ${sk.level} уровень навыка «${p.skill_name}»` : `принял квест навыка «${p.skill_name}» на 30 дней`);
       X.system({ kind: "achv", tag: "КВЕСТ ПРИНЯТ", head: p.skill_name, body: `Путь начинается завтра.\n«${pr.motivation}»\n\nОдин день — ничто. Тридцать дней — другой человек.` });
     };
   });
@@ -484,18 +598,21 @@ function renderActive($app, sk) {
   if (n < 1) {
     $app.innerHTML = `<div class="screen-title"><h1>${e(p.skill_name)}</h1></div>
       <div class="win violet"><div class="win-h">Квест принят</div><div class="small">Старт — завтра. Первое задание:</div>${dayHtml(sk, planDay(sk, 1), { full: true })}</div>
+      ${sk.level > 1 ? `<button class="btn block mb" data-world="${chainOf(sk)}">🌍 Выход в мир</button>` : ""}
       <div class="tiny muted center">${e(motto)}</div>`;
+    $app.querySelectorAll("[data-world]").forEach(b => b.onclick = () => openWorldView(b.dataset.world));
     return;
   }
   const finished = n > 30 + 3 || (sk.final && sk.final.grade);
-  if (finished && sk.status === "active") { finishSkill(sk); return renderHome($app); }
+  if (finished && sk.status === "active") { finishSkill(sk); return renderSkills($app); }
   const pd = planDay(sk, Math.min(n, 30)), t = sk.tasks[Math.min(n, 30)] || {};
   const debts = st.missed.filter(m => !(sk.tasks[m] && sk.tasks[m].done));
   const due = sk.cards.filter(c => c.due <= td);
   const bossAvail = BOSS_DAYS.map((d, i) => ({ d, w: i + 1 })).filter(b => n >= b.d && !(sk.bosses[b.w] && sk.bosses[b.w].grade));
   const week = Math.min(4, Math.ceil(Math.min(n, 30) / 7));
   $app.innerHTML = `<div class="sk-hero">${gateHtml()}<div class="sk-hero-t"><div class="gate-title" style="font-size:22px">${e(p.skill_name)}</div>
-      <div class="gate-sub" style="margin:4px 0 0">Ур. ${sk.level} · день ${Math.min(n, 30)} из 30</div></div></div>
+      <div class="gate-sub" style="margin:4px 0 0">Ур. ${sk.level}${sk.mode && sk.mode !== "upgrade" ? " · " + MODE_N[sk.mode] : ""} · день ${Math.min(n, 30)} из 30</div></div></div>
+    ${sk.level > 1 || finishedSkills().some(x => chainOf(x) === chainOf(sk)) ? `<button class="btn sm block mb" data-world="${chainOf(sk)}">🌍 Выход в мир</button>` : ""}
     <div class="win violet">
       <div class="row"><div class="grow"><div class="tiny muted">Освоение сейчас</div><div class="sys-font" style="font-size:26px;color:#fff">${st.mastery}%</div></div>
         <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${masteryRank(st.mastery)}</div></div>
@@ -524,6 +641,7 @@ function renderActive($app, sk) {
     <div class="tiny muted center mb">${e(motto)}</div>`;
   $app.querySelectorAll("[data-submit]").forEach(b => b.onclick = () => openSubmit(sk, +b.dataset.submit));
   $app.querySelectorAll("[data-boss]").forEach(b => b.onclick = () => openBoss(sk, +b.dataset.boss));
+  $app.querySelectorAll("[data-world]").forEach(b => b.onclick = () => openWorldView(b.dataset.world));
   const rv = $app.querySelector("#rv-go"); if (rv) rv.onclick = () => openReview(sk);
 }
 function reviewHtml(r) {
@@ -679,7 +797,7 @@ function finishSkill(sk) {
   X.postEvent && X.postEvent("skill", `освоил навык «${sk.plan.skill_name}» на ${st.mastery}%`);
   X.save();
   X.system({ kind: "levelup", tag: "НАВЫК ОСВОЕН", head: `${sk.plan.skill_name} · Ур. ${sk.level}`,
-    body: `Освоение: ${st.mastery}% · ранг навыка ${masteryRank(st.mastery)}\nВыполнено дней: ${st.done}/${st.need}\n\nТы больше не тот, кем начинал.` });
+    body: `Освоение: ${st.mastery}% · ранг навыка ${masteryRank(st.mastery)}\nВыполнено дней: ${st.done}/${st.need}\n\nТы больше не тот, кем начинал.\n\n${st.mastery >= 60 ? `Открыт путь на Ур. ${(sk.level || 1) + 1}` : "Для следующего уровня нужно 60%: впереди месяц закрепления"} и «Выход в мир» — во вкладке «Навыки».` });
 }
 
 /** Состояние задания навыка на сегодня (для напоминаний): none / todo / done / rest. */

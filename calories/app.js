@@ -1,11 +1,12 @@
 // ARISE — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
-import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState } from "./skills.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, openWorldView } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
 import { showIntro } from "./intro.js";
+import { initWorld, renderWorld, worldDue } from "./world.js";
 const CAM = ["push", "squat", "abs"]; // упражнения, которые считает камера (бег — вручную)
 const loadPose = () => import("./pose.js");
 const loadScanner = () => import("./scanner.js");
@@ -519,6 +520,8 @@ function renderStatus(P) {
     <div class="screen-title"><h1>Статус</h1><span class="sub">${humanDate(td)}</span></div>
     ${hunterCard(P)}
     <div class="daily-word"><span class="tag-sys">СЛОВО СИСТЕМЫ</span><div>${esc(dailyPhrase(td))}</div></div>
+    ${(() => { const due = worldDue(); return due.length ? `<div class="win" style="border-color:rgba(255,194,74,.6)" data-wdue="${due[0].chain}"><div class="win-h" style="color:#ffd77a">🌍 Выход в мир<span class="right">›</span></div>
+      <div class="small">Сегодня написать: ${due.slice(0, 3).map(x => esc(x.c.name)).join(", ")}${due.length > 3 ? ` и ещё ${due.length - 3}` : ""}</div></div>` : ""; })()}
     ${statusCard()}
     <div class="win">
       <div class="win-h">Энергия дня<span class="right">норма ${t.kcal} ккал</span></div>
@@ -549,6 +552,7 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
   $app.querySelector("[data-hunter]").onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); };
   bindQuests(P);
   if (API_URL && S.player) bindGates($app, P);
@@ -1645,7 +1649,8 @@ function pickPhoto() {
     inp.click();
   });
 }
-initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL, postEvent });
+initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, pickPhoto, API_URL, postEvent, renderWorld });
+initWorld({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, render, postEvent });
 initGates({ S: () => S, save, api, esc, today, addDays, parseD, system, toast, render, postEvent, sheet });
 initExams({ S: () => S, save, today, addDays, parseD, system, postEvent, render, esc, sheet });
 
