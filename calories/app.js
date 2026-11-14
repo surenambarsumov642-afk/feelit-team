@@ -387,6 +387,7 @@ const ICONS = {
   status: '<svg viewBox="0 0 24 24"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>',
   diary: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
   skills: '<svg viewBox="0 0 24 24"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2 8 12.7 4 8.8 9.5 8z"/><path d="M12 21v-3"/></svg>',
+  player: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/><path d="M16 4l2-2M8 4L6 2"/></svg>',
   hunter: '<svg viewBox="0 0 24 24"><path d="M14.5 3.5l6 6L9 21l-6-6z"/><path d="M3 21l3-3M13 5l6 6"/></svg>',
   settings: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
@@ -396,10 +397,9 @@ function renderTabbar() {
   let bar = document.querySelector(".tabbar");
   if (!S.profile) { bar && bar.remove(); return; }
   if (!bar) { bar = document.createElement("nav"); bar.className = "tabbar"; document.body.appendChild(bar); }
-  const b = (id, label) => `<button class="tab ${tab === id || (id === "status" && (tab === "hunter" || tab === "settings")) ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
-  bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}
-    <button class="tab-add" data-act="add" aria-label="Добавить">${ICONS.plus}</button>
-    ${b("skills", "Навыки")}${b("rating", "Рейтинг")}</div>`;
+  const b = (id, label) => `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
+  bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
+    <button class="tab-add fab" data-act="add" aria-label="Добавить еду">${ICONS.plus}</button>`;
   bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { tab = x.dataset.tab; render(); window.scrollTo(0, 0); });
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
 }
@@ -409,7 +409,7 @@ function render() {
   const P = computeProgress();
   if (tab === "status") renderStatus(P);
   else if (tab === "diary") renderDiary(P);
-  else if (tab === "hunter") renderHunter(P);
+  else if (tab === "player" || tab === "hunter" || tab === "settings") renderPlayer(P);
   else if (tab === "rating") renderRating(P);
   else if (tab === "skills") renderSkills($app);
   else renderSettings();
@@ -512,7 +512,7 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
-  $app.querySelector("[data-hunter]").onclick = () => { tab = "hunter"; render(); window.scrollTo(0, 0); };
+  $app.querySelector("[data-hunter]").onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); };
   bindQuests(P);
   if (API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
@@ -592,7 +592,6 @@ function renderHunter(P) {
   const goalPos = (t.kcal / max * 100);
   const got = new Set(S.seen.ach.concat(ACH.filter(a => a.ok(P)).map(a => a.id)));
   $app.innerHTML = `
-    <div class="screen-title"><h1>Охотник</h1><button class="icon-btn" style="margin-left:auto" id="to-settings" aria-label="Настройки">⚙</button></div>
     ${hunterCard(P, true)}
     ${finishedSkills().length ? `<div class="win violet"><div class="win-h">Навыки</div>${finishedSkills().map(sk => `<div class="kv"><span>${esc(sk.plan.skill_name)} · Ур. ${sk.level}</span><b>${masteryRank(sk.mastery)} · ${sk.mastery}%</b></div>`).join("")}</div>` : ""}
     ${weightWin(t)}
@@ -616,7 +615,6 @@ function renderHunter(P) {
   $app.querySelectorAll("[data-title]").forEach(b => b.onclick = () => {
     S.title = S.title === b.dataset.title ? null : b.dataset.title; save(); render();
   });
-  document.getElementById("to-settings").onclick = () => { tab = "settings"; render(); window.scrollTo(0, 0); };
   document.getElementById("w-add").onclick = () => {
     const kg = r1(num(document.getElementById("w-in").value));
     if (kg < 30 || kg > 300) return toast("Введи вес в кг", true);
@@ -659,6 +657,52 @@ function weightChart(t) {
     <polyline points="${pts}" class="w-line"/>
     ${W.map(w => `<circle cx="${X(day(w.date))}" cy="${Y(w.kg)}" r="2.6" class="w-dot"/>`).join("")}
   </svg>`;
+}
+
+/* ============================ экран: Игрок ============================ */
+let ptab = "profile";
+function playerHead() {
+  return `<div class="screen-title"><h1>Игрок</h1><span class="sub">${esc(S.profile.name)}</span></div>
+    <div class="seg mb rtabs"><button data-pt="profile" class="${ptab === "profile" ? "on" : ""}">Профиль</button><button data-pt="settings" class="${ptab === "settings" ? "on" : ""}">Настройки</button><button data-pt="about" class="${ptab === "about" ? "on" : ""}">О Системе</button></div>`;
+}
+function renderPlayer(P) {
+  if (tab === "settings") ptab = "settings";
+  tab = "player";
+  if (ptab === "settings") renderSettings();
+  else if (ptab === "about") renderAbout(P);
+  else renderHunter(P);
+  $app.insertAdjacentHTML("afterbegin", playerHead());
+  $app.querySelectorAll("[data-pt]").forEach(b => b.onclick = () => { ptab = b.dataset.pt; render(); window.scrollTo(0, 0); });
+}
+function renderAbout(P) {
+  const sec = (title, body) => `<details class="rule"><summary>${title}</summary><div class="small">${body}</div></details>`;
+  $app.innerHTML = `
+    <div class="win violet about">
+      <div class="win-h">Об авторе</div>
+      <div class="about-gate">${'<div class="g-glow"></div><div class="g-core"></div>'}</div>
+      <p>Привет. Я — <b>Сурен</b>, и ARISE я сделал для себя и своих друзей.</p>
+      <p>Я хочу расти: быть сильнее, здоровее, умнее, зарабатывать больше. Но честно — мне не хватало мотивации и дисциплины. Начинаешь с огнём, а через неделю всё сходит на нет. Знакомо?</p>
+      <p>Поэтому я построил Систему. Как в Solo Leveling: каждый день — квест, за каждый шаг — опыт, за слабость — штраф, а ранг нужно заслужить. Рядом — друзья, которые видят твой прогресс и не дают остановиться.</p>
+      <p>ARISE не сделает работу за тебя. Он просто не даст забыть, кем ты решил стать.</p>
+      <p class="about-sign">— Сурен, создатель ARISE</p>
+    </div>
+    <div class="win"><div class="win-h">Факты</div>
+      <div class="kv"><span class="muted">Создано</span><b>в 2026 году, в Ташкенте</b></div>
+      <div class="kv"><span class="muted">Для кого</span><b>для себя и друзей</b></div>
+      <div class="kv"><span class="muted">Цена</span><b>бесплатно и без рекламы</b></div>
+      <div class="kv"><span class="muted">Твои данные</span><b>на телефоне + копия на сервере</b></div>
+      <div class="kv"><span class="muted">Охотников в Системе</span><b>${board ? board.length : "—"}</b></div>
+    </div>
+    <div class="win"><div class="win-h">Правила Системы</div>
+      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, Врата, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Штрафы: день без записей и тренировки −30, перебор калорий больше 115% −20.`)}
+      ${sec("Ежедневные квесты", `Тренировка Системы (+80), учёт питания (+30), норма калорий 85–105% (+60). Все три — бонус +50 и «идеальный день». Нормы тренировки растут с уровнем.`)}
+      ${sec("Ранги и экзамены", `Уровень открывает экзамен, ранг даётся только после сдачи. E→D 7 дней, D→C 14, C→B 21, B→A 30, A→S 45, S→Национальный уровень 60. Каждый день — все квесты, усиленная тренировка и честные отметки. Одна ошибка — провал и пересдача через несколько дней.`)}
+      ${sec("Врата недели и рейды", `Каждую неделю у всех открываются одни и те же Врата рангов E–S и рейд. Закрыл — XP и редкий титул. Вошёл и не закрыл до воскресенья — прорыв подземелья, штраф. В рейде проигрывают все, если не справится хоть один.`)}
+      ${sec("Сезоны и дуэли", `Сезоны: неделя, месяц, год — считается XP за период. Победители: «Охотник недели», «Лорд месяца», «Монарх». Дуэль на 7 дней: XP, дни в норме или тренировки; победитель забирает ставку.`)}
+      ${sec("Навыки", `Интервью → проверка уровня → план на 30 дней. Каждый день — задание, сдача работы и разбор, повторение, босс каждую неделю, финальный проект. Пропуск — −40 XP и титул «Беглец» на неделю.`)}
+      ${sec("Честность", `Многие условия отмечаются вручную. Система доверяет охотникам: обманываешь — обманываешь только себя.`)}
+    </div>
+    <div class="center tiny dim mb">ARISE · v4.1 · «Ранг не дарят. Ранг подтверждают.»</div>`;
 }
 
 /* ============================ экран: Рейтинг ============================ */
@@ -882,7 +926,6 @@ function readProfile(base) {
 function renderSettings() {
   const p = S.profile, t = targets(), auto = calcTargets(p);
   $app.innerHTML = `
-    <div class="screen-title"><button class="icon-btn" id="back-hunter">‹</button><h1>Настройки</h1></div>
     ${accountWin()}
     <div class="win"><div class="win-h">Уведомления и звук</div>
       <div class="small mb">Система напомнит о квесте утром, днём (если ничего не записано) и вечером (если квест не закрыт), и сообщит о вызове на дуэль.</div>
@@ -911,8 +954,7 @@ function renderSettings() {
       <div class="tiny muted mt">Записей: ${S.entries.length}. ${S.player ? "Копия данных хранится на сервере — восстановишь по коду." : "Данные лежат только в этом браузере — делай экспорт."}</div>
       <button class="btn danger block mt" id="reset">Сбросить всё</button>
     </div>
-    <div class="center tiny dim mb">ARISE · v4.0</div>`;
-  document.getElementById("back-hunter").onclick = () => { tab = "hunter"; render(); };
+    <div class="center tiny dim mb">ARISE · v4.1</div>`;
   document.getElementById("push-btn").onclick = togglePush;
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
