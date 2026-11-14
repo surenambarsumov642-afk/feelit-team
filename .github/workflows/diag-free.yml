@@ -1,4 +1,4 @@
-# Проверка бесплатных ИИ: Groq (текст) и Cloudflare Workers AI (фото). Ключи в логах скрыты GitHub. 
+# Проверка бесплатных ИИ на фото еды: Groq (qwen3.8-27b) и Cloudflare Workers AI. Ключи в логах скрыты GitHub.
 name: Проверить бесплатный ИИ
 on:
   workflow_dispatch: {}
@@ -13,27 +13,24 @@ jobs:
       CF_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Groq — модели и пробный запрос
+      - name: Тестовое фото
         run: |
-          [ -n "$GROQ" ] || { echo "Нет GROQ_API_KEY"; exit 0; }
-          curl -sS https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ" -o m.json -w "models HTTP %{http_code}\n"
-          jq -r '.error.message // empty' m.json; jq -r '.data[]?.id' m.json | sort
-          for m in $(jq -r '.data[]?.id' m.json | grep -iE "gpt-oss-120b|llama-3.3-70b|llama-4|qwen|kimi|deepseek" | head -6); do
-            code=$(curl -sS -o o.json -w "%{http_code}" https://api.groq.com/openai/v1/chat/completions -H "Authorization: Bearer $GROQ" -H "Content-Type: application/json" \
-              -d "{\"model\":\"$m\",\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":300,\"messages\":[{\"role\":\"user\",\"content\":\"Верни JSON {\\\"plan\\\": [три коротких шага, как начать учить Python, по-русски]}\"}]}")
-            echo "== $m: HTTP $code"; jq -c '.error.message // .choices[0].message.content' o.json | head -c 500; echo
+          curl -sSL -A "Mozilla/5.0 (ARISE diagnostics)" -o food.jpg "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/640px-Good_Food_Display_-_NCI_Visuals_Online.jpg"
+          file food.jpg; ls -la food.jpg
+          echo "B64=$(base64 -w0 food.jpg)" >> $GITHUB_ENV
+      - name: Groq — фото
+        run: |
+          for m in qwen/qwen3.8-27b; do
+            jq -n --arg m "$m" --arg img "data:image/jpeg;base64,$B64" '{model:$m, max_tokens:800, response_format:{type:"json_object"},
+              messages:[{role:"user",content:[{type:"text",text:"Определи продукты на фото, вес порции в граммах и калории каждого. Ответ JSON {\"items\":[{\"name\":\"\",\"grams\":0,\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
+            code=$(curl -sS -o o.json -w "%{http_code}" https://api.groq.com/openai/v1/chat/completions -H "Authorization: Bearer $GROQ" -H "Content-Type: application/json" -d @req.json)
+            echo "== groq $m: HTTP $code"; jq -c '.error.message // .choices[0].message.content' o.json | head -c 700; echo; jq -c '.usage' o.json
           done
-      - name: Cloudflare — модели с картинками и пробный запрос
+          curl -sS https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ" | jq -c '.data[] | select(.id=="qwen/qwen3.8-27b" or .id=="openai/gpt-oss-120b") | {id, context_window, max_completion_tokens}'
+      - name: Cloudflare — фото
         run: |
-          [ -n "$CF_ID" ] && [ -n "$CF_TOKEN" ] || { echo "Нет CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN"; exit 0; }
-          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CF_ID/ai/models/search?per_page=200" -H "Authorization: Bearer $CF_TOKEN" -o cm.json -w "models HTTP %{http_code}\n"
-          jq -c '.errors // empty' cm.json
-          jq -r '.result[]? | select(((.task.name // "") | test("Image|Text Generation")) ) | "\(.name)\t\(.task.name)\t\([.properties[]? | select(.property_id=="vision" or .property_id=="function_calling") | .property_id] | join(","))"' cm.json | grep -iE "vision|Image-to-Text|llama-3.2-11b|llama-4|gemma|qwen|mistral-small" | head -30
-          # пробное фото: тарелка с едой (картинка из Википедии)
-          curl -sSL -o food.jpg "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/640px-Good_Food_Display_-_NCI_Visuals_Online.jpg"
-          B64=$(base64 -w0 food.jpg)
-          for m in $(jq -r '.result[]? | select([.properties[]? | .property_id] | index("vision")) | .name' cm.json | head -5) "@cf/meta/llama-4-scout-17b-16e-instruct" "@cf/meta/llama-3.2-11b-vision-instruct"; do
-            jq -n --arg img "data:image/jpeg;base64,$B64" '{max_tokens:400, messages:[{role:"user",content:[{type:"text",text:"Перечисли продукты на фото и примерные калории каждого. Ответ JSON {\"items\":[{\"name\":\"\",\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
+          for m in "@cf/qwen/qwen3.8-27b" "@cf/google/gemma-4-26b-a4b-it" "@cf/mistralai/mistral-small-3.1-24b-instruct" "@cf/meta/llama-4-scout-17b-16e-instruct" "@cf/deepseek-ai/deepseek-v4.1-flash-1017"; do
+            jq -n --arg img "data:image/jpeg;base64,$B64" '{max_tokens:800, messages:[{role:"user",content:[{type:"text",text:"Определи продукты на фото, вес порции в граммах и калории каждого. Ответ только JSON {\"items\":[{\"name\":\"\",\"grams\":0,\"kcal\":0}]} по-русски."},{type:"image_url",image_url:{url:$img}}]}]}' > req.json
             code=$(curl -sS -o o.json -w "%{http_code}" "https://api.cloudflare.com/client/v4/accounts/$CF_ID/ai/run/$m" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" -d @req.json)
-            echo "== $m: HTTP $code"; jq -c '.errors // .result.response // .result' o.json | head -c 600; echo
+            echo "== cf $m: HTTP $code"; jq -c '.errors[0].message // .result.response // .result.choices[0].message.content // .result' o.json | head -c 700; echo
           done
