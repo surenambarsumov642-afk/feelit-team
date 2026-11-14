@@ -17,7 +17,8 @@ jobs:
         run: |
           curl -sSL -A "ARISE-diagnostics/1.0 (github actions)" -o orig.jpg "https://upload.wikimedia.org/wikipedia/commons/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg"
           file orig.jpg
-          (magick orig.jpg -resize 800x800 -quality 80 food.jpg || convert orig.jpg -resize 800x800 -quality 80 food.jpg)
+          python3 -m pip install -q pillow 2>/dev/null || pip install -q --break-system-packages pillow
+          python3 -c "from PIL import Image; im=Image.open('orig.jpg').convert('RGB'); im.thumbnail((800,800)); im.save('food.jpg', quality=80)"
           file food.jpg; ls -la food.jpg
           file food.jpg | grep -q JPEG || { echo "фото не скачалось"; exit 1; }
           echo "B64=$(base64 -w0 food.jpg)" >> $GITHUB_ENV
