@@ -510,3 +510,6 @@ Deno.serve(async (req) => {
     return fail(e instanceof Error ? e.message : "Ошибка сервера", 500);
   }
 });
+
+// для проверки в CI (.github/workflows/test-ai.yml)
+export { ai, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts };
