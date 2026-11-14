@@ -15,8 +15,11 @@ jobs:
     steps:
       - name: Тестовое фото
         run: |
-          curl -sSL -A "Mozilla/5.0 (ARISE diagnostics)" -o food.jpg "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/640px-Good_Food_Display_-_NCI_Visuals_Online.jpg"
+          curl -sSL -A "ARISE-diagnostics/1.0 (github actions)" -o orig.jpg "https://upload.wikimedia.org/wikipedia/commons/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg"
+          file orig.jpg
+          (magick orig.jpg -resize 800x800 -quality 80 food.jpg || convert orig.jpg -resize 800x800 -quality 80 food.jpg)
           file food.jpg; ls -la food.jpg
+          file food.jpg | grep -q JPEG || { echo "фото не скачалось"; exit 1; }
           echo "B64=$(base64 -w0 food.jpg)" >> $GITHUB_ENV
       - name: Groq — фото
         run: |
