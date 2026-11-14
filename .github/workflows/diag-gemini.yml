@@ -1,0 +1,25 @@
+# Проверка ключей Gemini (GEMINI_API_KEY1 и GEMINI_API_KEY). Ключи в логах скрыты GitHub.
+name: Проверить Gemini
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/diag-gemini.yml"]
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Пробные запросы
+        env:
+          K1: ${{ secrets.GEMINI_API_KEY1 }}
+          K0: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          BODY='{"contents":[{"role":"user","parts":[{"text":"Скажи привет"}]}],"generationConfig":{"responseMimeType":"application/json","responseSchema":{"type":"OBJECT","properties":{"hi":{"type":"STRING"}},"required":["hi"]}}}'
+          for name in K1 K0; do
+            KEY="${!name}"; echo "### ключ $name: $([ -n "$KEY" ] && echo есть || echo НЕТ)"; [ -n "$KEY" ] || continue
+            for m in gemini-3.5-flash gemini-flash-latest gemini-2.5-flash gemini-3.5-flash-lite; do
+              code=$(curl -sS -o out.json -w "%{http_code}" -X POST "https://generativelanguage.googleapis.com/v1beta/models/$m:generateContent" \
+                -H "Content-Type: application/json" -H "x-goog-api-key: $KEY" -d "$BODY")
+              echo "== $m: HTTP $code"; jq -c '.error.message // .candidates[0].content.parts' out.json | head -c 300; echo
+            done
+          done
