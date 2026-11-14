@@ -1128,7 +1128,7 @@ function pickPhoto() {
     const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
     inp.onchange = async () => {
       const f = inp.files[0]; if (!f) return res(null);
-      try { const img = await loadImage(f); res(drawScaled(img, 1280, 0.82).split(",")[1]); } catch { toast("Не удалось открыть фото", true); res(null); }
+      try { const img = await loadImage(f); res(drawScaled(img, 1024, 0.8).split(",")[1]); } catch { toast("Не удалось открыть фото", true); res(null); }
     };
     inp.click();
   });
@@ -1151,7 +1151,7 @@ fileInput.onchange = async () => {
   const f = fileInput.files[0]; if (!f || !photoCtx) return;
   try {
     const img = await loadImage(f);
-    const full = drawScaled(img, 1280, 0.85);
+    const full = drawScaled(img, 1024, 0.8);
     const thumb = drawScaled(img, 160, 0.6);
     openPhotoSheet(full, thumb, photoCtx);
   } catch { toast("Не удалось открыть фото", true); }

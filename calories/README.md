@@ -1,16 +1,16 @@
 # ARISE — учёт калорий в стиле «Системы»
 
-PWA для iPhone: калории по фото (Gemini, бесплатно) и ручной ввод, план питания под целевой вес,
+PWA для iPhone: калории по фото (Claude Haiku 5.5) и ручной ввод, план питания под целевой вес,
 ежедневные квесты (включая тренировку), уровни и ранги E→S, характеристики, титулы и **общий рейтинг друзей**.
 
 Адрес: `https://surenambarsumov642-afk.github.io/feelit-team/calories/` → в Safari «Поделиться» → «На экран Домой».
 
 ## Устройство
 - `calories/` — приложение (HTML/CSS/JS без сборки). `config.js` — адрес сервера.
-- `supabase/functions/arise/index.ts` — сервер: регистрация по имени, синхронизация, рейтинг, восстановление по коду, распознавание фото через Gemini (лимит `PHOTO_LIMIT` фото в день на человека, по умолчанию 15).
+- `supabase/functions/arise/index.ts` — сервер: регистрация по имени, синхронизация, рейтинг, восстановление по коду, распознавание фото и навыки через Claude Haiku 5.5 (лимит `PHOTO_LIMIT` фото в день на человека, по умолчанию 15).
 - `supabase/schema.sql` — таблица `players` (доступ только через функцию).
 - `.github/workflows/deploy-backend.yml` — разворачивает сервер. Нужные секреты репозитория:
-  `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `GEMINI_API_KEY`.
+  `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `ANTHROPIC_API_KEY`.
 
 ## Правила прокачки
 | Действие | XP |

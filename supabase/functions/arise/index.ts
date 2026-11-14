@@ -1,7 +1,9 @@
 // ARISE — серверная функция Supabase.
-// Действия: register, sync, leaderboard, restore, analyze (распознавание еды через Gemini).
-// Секреты: GEMINI_API_KEY (обязательно), GEMINI_MODEL (необязательно), PHOTO_LIMIT (фото в день на игрока, по умолчанию 15).
+// Действия: register, sync, leaderboard, restore, analyze, estimate, skill, rename.
+// ИИ: Claude Haiku 5.5 через официальный SDK. Секреты: ANTHROPIC_API_KEY (обязательно),
+// PHOTO_LIMIT (фото в день, 15), TEXT_LIMIT (текстовых расчётов в день, 40), SKILL_LIMIT (запросов к наставнику в день, 40).
 import { createClient } from "npm:@supabase/supabase-js@2";
+import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +42,7 @@ async function playerByToken(token: unknown) {
 const int = (x: unknown, lo = 0, hi = 1e9) => Math.max(lo, Math.min(hi, Math.round(Number(x) || 0)));
 const todayUTC5 = () => new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
 
-/* ---------------- Gemini ---------------- */
+/* ---------------- ИИ: еда ---------------- */
 const SYSTEM = `You are a professional nutritionist and food-recognition expert inside a calorie-tracking app.
 The user sends a photo of food. Identify every distinct food or drink item that is visible and estimate,
 as precisely as possible, the portion weight in grams and its calories, protein, fat and carbohydrates.
@@ -90,48 +92,70 @@ Split it into distinct food items and estimate for each: portion weight in grams
 - Use standard nutrition references per 100 g, then scale. Calories must match macros (≈4P+9F+4C within ~10%).
 Names in Russian, short, lower-case. If the text is not food, set is_food=false and return an empty list.`;
 
-function imageParts(image: string, hint: string) {
+function imageParts(image: string, hint: string): Block[] {
   return [
-    { inline_data: { mime_type: "image/jpeg", data: image } },
+    { image },
     { text: hint ? `Уточнение от пользователя: ${hint}\n\nОпредели продукты на фото и оцени КБЖУ.` : "Определи продукты на фото и оцени КБЖУ." },
   ];
 }
 
-async function gemini(parts: unknown[], system = SYSTEM, schema: unknown = SCHEMA, temperature = 0.2) {
-  const key = Deno.env.get("GEMINI_API_KEY");
-  if (!key) throw new Error("На сервере не задан GEMINI_API_KEY");
-  const models = [Deno.env.get("GEMINI_MODEL"), "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
-    .filter(Boolean) as string[];
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts }],
-    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature, maxOutputTokens: 16000 },
-  };
-  let lastErr = "";
-  for (const model of models) {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify(body),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      const text = (d.candidates?.[0]?.content?.parts ?? []).filter((p: { thought?: boolean }) => !p.thought)
-        .map((p: { text?: string }) => p.text ?? "").join("");
-      if (!text) { lastErr = "пустой ответ модели"; continue; }
-      try { return JSON.parse(text); } catch { lastErr = "ответ модели не JSON"; continue; }
-    }
-    lastErr = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`;
-    console.error("gemini", lastErr);
-    // 404 — модели нет, 429 — исчерпан лимит этой модели, 5xx — сбой: пробуем следующую
-    if (r.status === 403 && lastErr.includes("free tier is not available")) {
-      throw new Error("ИИ отключён: для ключа Gemini недоступен бесплатный тариф — владельцу нужно включить оплату в Google AI Studio.");
-    }
-    if (r.status === 400 && lastErr.includes("API key")) throw new Error("Ключ Gemini на сервере недействителен.");
-    if (![404, 429, 500, 503].includes(r.status)) break;
+const MODEL = "claude-haiku-5-5";
+let anthropic: Anthropic | null = null;
+
+/** Схема в стиле OBJECT/STRING → JSON Schema для structured outputs (additionalProperties: false). */
+function toJsonSchema(x: any): any {
+  if (!x || typeof x !== "object") return x;
+  const out: any = { type: String(x.type).toLowerCase() };
+  if (x.enum) out.enum = x.enum;
+  if (x.description) out.description = x.description;
+  if (out.type === "object") {
+    out.properties = Object.fromEntries(Object.entries(x.properties ?? {}).map(([k, v]) => [k, toJsonSchema(v)]));
+    out.required = x.required ?? Object.keys(out.properties);
+    out.additionalProperties = false;
   }
-  if (lastErr.includes(" 429 ")) throw new Error("Бесплатный лимит ИИ на сегодня исчерпан. Попробуй позже.");
-  throw new Error("Сервис ИИ недоступен. Попробуй позже.");
+  if (out.type === "array") out.items = toJsonSchema(x.items);
+  return out;
+}
+
+type Block = { text?: string; image?: string };
+/**
+ * Запрос к Claude со строгим JSON-ответом. Экономия токенов: Haiku 5.5, низкий effort (думает мало или не думает),
+ * короткие системные промпты, max_tokens по задаче, фото уменьшаются на телефоне.
+ */
+async function claude(blocks: Block[], system: string, schema: unknown, opts: { effort?: "low" | "medium"; maxTokens?: number } = {}) {
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) throw new Error("На сервере не задан ключ ИИ (ANTHROPIC_API_KEY).");
+  anthropic ??= new Anthropic({ apiKey: key, maxRetries: 2, timeout: 110_000 });
+  const content = blocks.map((b) => b.image
+    ? { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: b.image } }
+    : { type: "text" as const, text: b.text ?? "" });
+  let res;
+  try {
+    res = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: opts.maxTokens ?? 4000,
+      system,
+      output_config: { effort: opts.effort ?? "low", format: { type: "json_schema", schema: toJsonSchema(schema) } },
+      messages: [{ role: "user", content }],
+    });
+  } catch (e) {
+    console.error("claude", e);
+    if (e instanceof Anthropic.AuthenticationError) throw new Error("Ключ ИИ на сервере недействителен.");
+    if (e instanceof Anthropic.PermissionDeniedError) throw new Error("Нет доступа к модели ИИ с этим ключом.");
+    if (e instanceof Anthropic.RateLimitError) throw new Error("ИИ перегружен или закончился баланс. Попробуй позже.");
+    if (e instanceof Anthropic.BadRequestError) {
+      const m = String((e as Error).message);
+      throw new Error(m.includes("credit balance") ? "На счёте ИИ закончились деньги — владельцу нужно пополнить баланс." : "ИИ отклонил запрос.");
+    }
+    if (e instanceof Anthropic.APIConnectionError) throw new Error("Нет связи с ИИ. Попробуй позже.");
+    if (e instanceof Anthropic.APIError) throw new Error("Сервис ИИ временно недоступен. Попробуй позже.");
+    throw e;
+  }
+  console.log("usage", JSON.stringify(res.usage));
+  if (res.stop_reason === "refusal") throw new Error("ИИ отказался обрабатывать этот запрос.");
+  if (res.stop_reason === "max_tokens") throw new Error("Ответ ИИ оборвался. Попробуй ещё раз.");
+  const text = res.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
+  try { return JSON.parse(text); } catch { throw new Error("ИИ вернул неразборчивый ответ. Попробуй ещё раз."); }
 }
 
 /* ---------------- навыки ---------------- */
@@ -152,7 +176,7 @@ const DAY = OBJ({
   day: NUM, title: STR, what: STR, resource: RESOURCE, deliverable: STR, why: STR, minutes: NUM, rest: BOOL,
 });
 
-const SKILL_KINDS: Record<string, { schema: unknown; prompt: (c: Record<string, unknown>) => string; temp?: number }> = {
+const SKILL_KINDS: Record<string, { schema: unknown; prompt: (c: Record<string, unknown>) => string; temp?: number; max?: number }> = {
   clarify: {
     schema: OBJ({ vague: BOOL, questions: ARR(STR), suggestion: STR }),
     prompt: (c) => `Человек хочет освоить навык. Его ответы:
@@ -171,6 +195,7 @@ hint — подсказка, что можно ответить «не знаю�
   },
   plan: {
     temp: 0.5,
+    max: 16000,
     schema: OBJ({
       skill_name: STR,
       profile: OBJ({ level: STR, level_note: STR, strengths: ARR(STR), weak: ARR(STR), main_risk: STR, motivation: STR }),
@@ -233,6 +258,7 @@ next — что развивать дальше (1–2 предложения), 
   },
   adapt: {
     temp: 0.5,
+    max: 6000,
     schema: OBJ({ note: STR, days: ARR(DAY) }),
     prompt: (c) => `Человек оценил, как идёт обучение. Перестрой следующие дни плана (те же номера дней, что в remaining) под его отзыв.
 Данные: ${JSON.stringify(c)}
@@ -244,10 +270,10 @@ next — что развивать дальше (1–2 предложения), 
 async function skillAI(kind: string, ctx: Record<string, unknown>, image?: string) {
   const k = SKILL_KINDS[kind];
   if (!k) throw new Error("unknown skill kind");
-  const parts: unknown[] = [];
-  if (image) parts.push({ inline_data: { mime_type: "image/jpeg", data: image } });
+  const parts: Block[] = [];
+  if (image) parts.push({ image });
   parts.push({ text: k.prompt(ctx) });
-  return await gemini(parts, MENTOR, k.schema, k.temp ?? 0.3);
+  return await claude(parts, MENTOR, k.schema, { effort: kind === "plan" ? "medium" : "low", maxTokens: k.max ?? 3000 });
 }
 
 /* ---------------- обработчик ---------------- */
@@ -308,7 +334,7 @@ Deno.serve(async (req) => {
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Используй ручной ввод.`, 429);
         await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
-        const res = await gemini(imageParts(image, String(b.hint ?? "").slice(0, 300)));
+        const res = await claude(imageParts(image, String(b.hint ?? "").slice(0, 300)), SYSTEM, SCHEMA, { maxTokens: 2000 });
         return json({ ...res, photos_left: limit - used - 1 });
       }
       case "estimate": {
@@ -321,7 +347,7 @@ Deno.serve(async (req) => {
         const used = p.text_day === day ? p.text_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} расчётов в день исчерпан. Введи КБЖУ вручную.`, 429);
         await db.from("players").update({ text_day: day, text_count: used + 1 }).eq("id", p.id);
-        const res = await gemini([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM);
+        const res = await claude([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM, SCHEMA, { maxTokens: 1500 });
         return json(res);
       }
       case "skill": {

@@ -1,8 +1,8 @@
-# Разворачивает сервер ARISE в Supabase: таблица игроков + функция arise + ключ Gemini.
+# Разворачивает сервер ARISE в Supabase: таблица игроков + функция arise + ключ ИИ (Claude).
 # Секреты репозитория (Settings → Secrets and variables → Actions):
 #   SUPABASE_ACCESS_TOKEN — supabase.com → Account → Access Tokens
 #   SUPABASE_PROJECT_REF  — id проекта (из адреса https://<id>.supabase.co)
-#   GEMINI_API_KEY        — aistudio.google.com → Get API key
+#   ANTHROPIC_API_KEY     — console.anthropic.com → API Keys (ИИ: Claude Haiku 5.5)
 name: Развернуть сервер ARISE
 on:
   workflow_dispatch: {}
@@ -21,7 +21,7 @@ jobs:
         run: |
           [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "Нет секрета SUPABASE_ACCESS_TOKEN"; exit 1; }
           [ -n "$REF" ] || { echo "Нет секрета SUPABASE_PROJECT_REF"; exit 1; }
-          [ -n "${{ secrets.GEMINI_API_KEY }}" ] || { echo "Нет секрета GEMINI_API_KEY"; exit 1; }
+          [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ] || { echo "Нет секрета ANTHROPIC_API_KEY"; exit 1; }
       - name: Создать таблицу
         run: |
           code=$(curl -sS -o resp.txt -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
@@ -31,8 +31,8 @@ jobs:
           [ "$code" -lt 300 ] || { echo "Ошибка SQL ($code)"; exit 1; }
       - uses: supabase/setup-cli@v1
         with: { version: latest }
-      - name: Сохранить ключ Gemini на сервере
-        run: supabase secrets set --yes --project-ref "$REF" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
+      - name: Сохранить ключ ИИ на сервере
+        run: supabase secrets set --yes --project-ref "$REF" ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
       - name: Развернуть функцию
         run: supabase functions deploy arise --yes --project-ref "$REF" --no-verify-jwt
       - name: Проверка
