@@ -83,3 +83,20 @@ returns table (player_id uuid, xp bigint)
 language sql stable as $$
   select player_id, sum(xp)::bigint from public.player_days where day between p_from and p_to group by player_id
 $$;
+
+-- этап 4: уведомления
+create table if not exists public.app_config (key text primary key, value text not null);
+alter table public.app_config enable row level security;
+insert into public.app_config (key, value) values ('cron_secret', gen_random_uuid()::text) on conflict (key) do nothing;
+
+create table if not exists public.push_subs (
+  endpoint text primary key,
+  player_id uuid not null references public.players(id) on delete cascade,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.push_subs enable row level security;
+
+alter table public.players add column if not exists skill_state text not null default 'none';
+alter table public.players add column if not exists skill_date date;

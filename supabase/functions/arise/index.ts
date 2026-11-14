@@ -6,6 +6,7 @@
 // PHOTO_LIMIT (фото в день, 15), TEXT_LIMIT (текстовых расчётов в день, 40), SKILL_LIMIT (запросов к наставнику в день, 40).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
+import webpush from "npm:web-push@3.6.7";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -84,6 +85,48 @@ async function dayStats(ids: string[], from: string, to: string) {
   for (const r of data ?? []) { const o = out[r.player_id]; o.xp += r.xp; o.norm += r.norm ? 1 : 0; o.workout += r.workout ? 1 : 0; }
   return out;
 }
+/* ---------------- уведомления (Web Push) ---------------- */
+const APP_URL = "https://surenambarsumov642-afk.github.io/feelit-team/calories/";
+async function cfg(key: string) { const { data } = await db.from("app_config").select("value").eq("key", key).maybeSingle(); return data?.value as string | undefined; }
+let vapidReady: { pub: string } | null = null;
+async function vapid() {
+  if (vapidReady) return vapidReady;
+  let pub = await cfg("vapid_public"), priv = await cfg("vapid_private");
+  if (!pub || !priv) {
+    const k = webpush.generateVAPIDKeys();
+    await db.from("app_config").upsert([{ key: "vapid_public", value: k.publicKey }, { key: "vapid_private", value: k.privateKey }], { onConflict: "key", ignoreDuplicates: true });
+    pub = await cfg("vapid_public"); priv = await cfg("vapid_private");
+  }
+  webpush.setVapidDetails(APP_URL, pub!, priv!);
+  return (vapidReady = { pub: pub! });
+}
+async function pushTo(playerId: string, title: string, body: string, tag = "arise") {
+  const { data: subs } = await db.from("push_subs").select("endpoint,p256dh,auth").eq("player_id", playerId);
+  if (!subs?.length) return 0;
+  await vapid();
+  let sent = 0;
+  for (const s of subs) {
+    try {
+      // библиотека только шифрует (aes128gcm + VAPID), отправка — стандартным fetch
+      const d = webpush.generateRequestDetails({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        JSON.stringify({ title, body, tag, url: APP_URL }), { TTL: 6 * 3600 });
+      const r = await fetch(d.endpoint, { method: d.method, headers: d.headers as Record<string, string>, body: d.body as unknown as BodyInit });
+      if (r.ok) sent++;
+      else {
+        console.error("push", r.status, (await r.text()).slice(0, 120));
+        if (r.status === 404 || r.status === 410) await db.from("push_subs").delete().eq("endpoint", s.endpoint);
+      }
+    } catch (e) { console.error("push", String((e as Error).message).slice(0, 120)); }
+  }
+  return sent;
+}
+const PUSH_MORNING = [
+  "Новый день. Ежедневный квест получен.", "Система наблюдает. Покажи, на что ты способен сегодня.",
+  "Слабость — не приговор. Это стартовая точка. Квест ждёт.", "Каждый день, который ты не бросил, — уровень, который у тебя не отнять.",
+];
+const PUSH_EVENING = ["До полуночи 3 часа. Встань и закрой квест.", "Пока ты медлишь, кто-то другой становится сильнее.", "Штраф близко. Система не прощает слабость."];
+const pick = (a: string[]) => a[Math.floor(Math.random() * a.length)];
+
 async function postEvent(playerId: string, kind: string, text: string) {
   await db.from("events").insert({ player_id: playerId, kind: kind.slice(0, 20), text: text.slice(0, 160) });
 }
@@ -477,6 +520,8 @@ Deno.serve(async (req) => {
           title: s.title ? String(s.title).slice(0, 40) : null,
           today_quests: int(s.today_quests, 0, 10), today_total: int(s.today_total, 1, 10),
           stats_date: /^\d{4}-\d{2}-\d{2}$/.test(String(s.stats_date)) ? s.stats_date : null,
+          skill_state: ["none", "todo", "done", "rest"].includes(String(s.skill_state)) ? String(s.skill_state) : "none",
+          skill_date: isDay(s.stats_date) ? s.stats_date : null,
           ...(save ? { save } : {}), updated_at: new Date().toISOString(),
         }).eq("id", p.id);
         if (error) return fail("Ошибка сохранения", 500);
@@ -534,6 +579,7 @@ Deno.serve(async (req) => {
         const { error } = await db.from("duels").insert({ a: p.id, b: opp, metric, stake });
         if (error) return fail("Не удалось создать дуэль", 500);
         await postEvent(p.id, "duel", `вызвал ${o.name} на дуэль`);
+        pushTo(opp, "⚔ Вызов на дуэль", `${p.name} вызывает тебя на дуэль на 7 дней. Ставка: ${stake} XP.`, "duel").catch(() => {});
         return json({ ok: true });
       }
       case "duel_respond": {
@@ -635,6 +681,48 @@ Deno.serve(async (req) => {
         if (used >= limit) return fail(`Лимит ${limit} запросов к наставнику в день исчерпан. Продолжим завтра.`, 429);
         await db.from("players").update({ skill_day: day, skill_count: used + 1 }).eq("id", p.id);
         return json(await skillAI(kind, ctx, image));
+      }
+      case "push_key": return json({ key: (await vapid()).pub });
+      case "push_sub": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const sub = (b.sub ?? {}) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+        if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth || !/^https:\/\//.test(sub.endpoint)) return fail("Неверная подписка");
+        await db.from("push_subs").upsert({ endpoint: sub.endpoint, player_id: p.id, p256dh: sub.keys.p256dh, auth: sub.keys.auth }, { onConflict: "endpoint" });
+        if (b.test) await pushTo(p.id, "[СИСТЕМА]", "Уведомления включены. Система будет напоминать о квестах.", "hello");
+        return json({ ok: true });
+      }
+      case "push_unsub": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        await db.from("push_subs").delete().eq("player_id", p.id);
+        return json({ ok: true });
+      }
+      case "push_tick": {
+        if (!b.secret || b.secret !== (await cfg("cron_secret"))) return fail("forbidden", 403);
+        const slot = String(b.slot), td = todayUTC5();
+        const { data: subs } = await db.from("push_subs").select("player_id");
+        const ids = [...new Set((subs ?? []).map((x) => x.player_id))];
+        if (!ids.length) return json({ sent: 0 });
+        const { data: ps } = await db.from("players").select("id,name,today_quests,today_total,stats_date,skill_state,skill_date,streak").in("id", ids);
+        let sent = 0;
+        for (const pl of ps ?? []) {
+          const fresh = pl.stats_date === td, q = fresh ? pl.today_quests : 0, total = pl.today_total || 3;
+          const skillTodo = pl.skill_date === td ? pl.skill_state === "todo" : pl.skill_state !== "none" && pl.skill_state !== "rest";
+          let title = "", body = "";
+          if (slot === "morning") {
+            title = "[СИСТЕМА] Новый день"; body = `${pl.name}, ${pick(PUSH_MORNING)}${skillTodo ? " Задание навыка тоже ждёт." : ""}`;
+          } else if (slot === "day") {
+            if (!fresh || q === 0) { title = "[СИСТЕМА] Ты ещё не начал"; body = "Сегодня нет ни одной записи. Запиши, что съел, — это займёт минуту."; }
+          } else {
+            if (q < total || skillTodo) {
+              title = "[ВНИМАНИЕ] Квест не выполнен";
+              body = `${q < total ? `Квесты: ${q}/${total}. ` : ""}${skillTodo ? "Задание навыка не сдано. " : ""}${pick(PUSH_EVENING)}${pl.streak > 2 ? ` Серия ${pl.streak} дн. под угрозой.` : ""}`;
+            }
+          }
+          if (title) sent += await pushTo(pl.id, title, body, slot);
+        }
+        return json({ sent });
       }
       case "rename": {
         const p = await playerByToken(b.token);

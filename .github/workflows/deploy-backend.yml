@@ -31,6 +31,13 @@ jobs:
             -d "$(jq -Rs '{query: .}' supabase/schema.sql)")
           cat resp.txt; echo
           [ "$code" -lt 300 ] || { echo "Ошибка SQL ($code)"; exit 1; }
+      - name: Расписание напоминаний (pg_cron)
+        run: |
+          sed "s#__URL__#https://$REF.supabase.co/functions/v1/arise#g" supabase/cron.sql > cron.sql
+          code=$(curl -sS -o resp.txt -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$(jq -Rs '{query: .}' cron.sql)")
+          cat resp.txt; echo
+          [ "$code" -lt 300 ] || { echo "Ошибка расписания ($code)"; exit 1; }
       - uses: supabase/setup-cli@v1
         with: { version: latest }
       - name: Сохранить ключи ИИ на сервере
