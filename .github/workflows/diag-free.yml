@@ -1,4 +1,4 @@
-# Проверка бесплатных ИИ: Groq (текст) и Cloudflare Workers AI (фото). Ключи в логах скрыты GitHub.
+# Проверка бесплатных ИИ: Groq (текст) и Cloudflare Workers AI (фото). Ключи в логах скрыты GitHub. 
 name: Проверить бесплатный ИИ
 on:
   workflow_dispatch: {}
