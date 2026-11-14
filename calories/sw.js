@@ -1,7 +1,7 @@
 // Офлайн-кэш оболочки приложения + приём уведомлений. Запросы к серверу (Supabase) не кэшируются.
 // Свои файлы всегда проверяются на сервере (cache: "no-cache"), поэтому обновления приходят сразу, а офлайн работает кэш.
-const CACHE = "arise-v10";
-const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "foods.js", "skills.js", "gates.js", "exams.js", "phrases.js", "repcount.js", "pose.js",
+const CACHE = "arise-v11";
+const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "foods.js", "skills.js", "gates.js", "exams.js", "phrases.js", "repcount.js", "pose.js", "scanner.js",
   "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

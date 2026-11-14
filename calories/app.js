@@ -7,6 +7,7 @@ import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankId
 import { phrase, sfx } from "./phrases.js";
 const CAM = ["push", "squat", "abs"]; // упражнения, которые считает камера (бег — вручную)
 const loadPose = () => import("./pose.js");
+const loadScanner = () => import("./scanner.js");
 const STORE_KEY = "arise-calories-v1";
 const $app = document.getElementById("app");
 
@@ -272,7 +273,7 @@ function computeProgress() {
     dis: 10 + normDays,
     per: 10 + Math.floor(photos / 3),
   };
-  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays };
+  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays, mapped: S.mapped || 0 };
 }
 
 /* ============================ достижения ============================ */
@@ -291,6 +292,8 @@ const ACH = [
   { id: "eye50", ic: "◎", n: "Всевидящий", d: "50 распознанных фото", ok: P => P.photos >= 50 },
   { id: "scribe", ic: "📜", n: "Летописец", d: "100 записей", ok: P => P.entries >= 100 },
   { id: "streak30", ic: "⛓", n: "Несгибаемый", d: "30 дней подряд с записями", ok: P => P.longest >= 30 },
+  { id: "mapper1", ic: "▦", n: "Первооткрыватель", d: "Добавить продукт в общую базу", ok: P => P.mapped >= 1 },
+  { id: "mapper10", ic: "🗺", n: "Картограф", d: "Добавить 10 продуктов в общую базу", ok: P => P.mapped >= 10 },
   { id: "weigh", ic: "⚙", n: "Взгляд в зеркало", d: "Записать вес 5 раз", ok: P => P.weights >= 5 },
   { id: "rankD", ic: "D", n: "Охотник ранга D", d: "Сдать экзамен на ранг D", ok: P => rankIdx(P.rank) >= 1 },
   { id: "rankC", ic: "C", n: "Охотник ранга C", d: "Сдать экзамен на ранг C", ok: P => rankIdx(P.rank) >= 2 },
@@ -1268,10 +1271,12 @@ function openAddSheet(date = (tab === "diary" ? diaryDate : today()), meal) {
     <div class="add-opts">
       <button class="add-opt" data-o="photo"><span class="i">📷</span><b>Фото</b><span>Система распознает блюдо и КБЖУ</span></button>
       <button class="add-opt" data-o="manual"><span class="i">✎</span><b>По названию</b><span>Название и граммы — КБЖУ посчитается</span></button>
+      <button class="add-opt wide" data-o="scan"><span class="i">▦</span><div><b>Штрихкод</b><span>Наведи камеру на упаковку — КБЖУ из общей базы</span></div></button>
     </div>
     ${recentList()}`, (el, close) => {
     el.querySelector("[data-o=photo]").onclick = () => { close(); startPhoto(date, meal); };
     el.querySelector("[data-o=manual]").onclick = () => { close(); openManual({ date, meal }); };
+    el.querySelector("[data-o=scan]").onclick = () => { close(); startScan(date, meal); };
     el.querySelectorAll("[data-recent]").forEach(b => b.onclick = () => {
       const e = S.entries.find(x => x.id === b.dataset.recent); close();
       if (!e.grams) return openManual({ date, meal, name: e.name });
@@ -1331,6 +1336,14 @@ function openManual(o = {}) {
         </div>
         <div class="tiny dim mt">${list.length ? "Нет нужного? " : "В базе не нашлось. "}ИИ посчитает по описанию: «гречка с маслом 150 г».</div>`;
       el.querySelectorAll("[data-s]").forEach(r => r.onclick = () => pick(list[+r.dataset.s]));
+      sharedSearch(q, foods => {
+        if (g("m-q").value.trim() !== q || sel) return;
+        const box = document.createElement("div");
+        box.innerHTML = foods.map((f, i) => `<div class="recent" data-sh="${i}"><span class="nm">${esc(f.name)} <span class="tiny" style="color:var(--blue2)">${f.source === "off" ? "упаковка" : "база игроков"}</span></span>
+          <span class="kc">${r0(f.kcal)} ккал/100 г</span><span class="muted">›</span></div>`).join("");
+        box.querySelectorAll("[data-sh]").forEach(r => r.onclick = () => pick({ ...foods[+r.dataset.sh], pc: foods[+r.dataset.sh].serving || 0 }));
+        g("m-sugg").prepend(box);
+      });
       const ai = g("m-ai"); if (ai) ai.onclick = () => runAI(q);
       g("m-self").onclick = () => selfForm(q);
     };
@@ -1343,10 +1356,12 @@ function openManual(o = {}) {
       g("m-body").innerHTML = `
         <div class="grid2 mt"><label class="f">Сколько грамм<input class="in" id="m-g" inputmode="decimal" value="${grams0}"></label>
           <label class="f">Приём пищи${mealSelect("m-meal", meal0)}</label></div>
-        ${f.pc ? `<div class="row mt" style="gap:6px;flex-wrap:wrap">${[1, 2, 3].map(n => `<button class="btn ghost sm" data-pc="${n}">${n} шт · ${f.pc * n} г</button>`).join("")}</div>` : ""}
+        ${f.pc ? `<div class="row mt" style="gap:6px;flex-wrap:wrap">${[1, 2, 3].map(n => `<button class="btn ghost sm" data-pc="${n}">${n} ${f.code ? "уп" : "шт"} · ${f.pc * n} г</button>`).join("")}</div>` : ""}
         <div class="win mt" style="margin-bottom:10px">
           <div class="total-line" style="border:0;margin:0;padding:0"><span class="muted small" id="m-sum"></span><b id="m-tot"></b></div>
           <div class="tiny dim mt" id="m-per">На 100 г: ${f.kcal} ккал · Б ${f.p} · Ж ${f.f} · У ${f.c}</div>
+          ${f.code ? `<div class="tiny dim mt">▦ ${esc(f.code)} · ${f.source === "off" ? "Open Food Facts" : f.by ? "добавил " + esc(f.by) : "база игроков"}
+            · <a href="#" id="m-rep" style="color:var(--red,#ff5470)">данные неверны?</a></div>` : ""}
         </div>
         <div class="grid2"><button class="btn ghost" id="m-edit">Изменить КБЖУ</button><button class="btn" id="m-save">Записать</button></div>`;
       const upd = () => {
@@ -1356,11 +1371,21 @@ function openManual(o = {}) {
       };
       g("m-g").oninput = upd; upd();
       el.querySelectorAll("[data-pc]").forEach(b => b.onclick = () => { g("m-g").value = f.pc * +b.dataset.pc; upd(); });
+      const rp = g("m-rep"); if (rp) rp.onclick = async ev => {
+        ev.preventDefault();
+        if (!confirm("Сообщить, что КБЖУ этого продукта неверные? После двух жалоб продукт уберут из базы, и его можно будет добавить заново.")) return;
+        try {
+          const r = await api("barcode_report", { token: S.player.token, code: f.code });
+          if (S.barcodes) delete S.barcodes[f.code]; save();
+          if (r.removed) { close(); toast("Продукт убран. Добавь верные данные с этикетки."); openNewProduct(f.code, date, meal0); }
+          else toast("Жалоба учтена. Спасибо за честность.");
+        } catch (e) { toast(e.message, true); }
+      };
       g("m-edit").onclick = () => selfForm(sel.name, { grams: num(g("m-g").value), kcal: sel.kcal, p: sel.p, f: sel.f, c: sel.c });
       g("m-save").onclick = () => {
         const grams = num(g("m-g").value), k = grams / 100;
         if (grams <= 0) return toast("Укажи граммы", true);
-        addEntries([{ name: sel.name, grams, kcal: sel.kcal * k, p: sel.p * k, f: sel.f * k, c: sel.c * k, source: "manual" }], date, g("m-meal").value);
+        addEntries([{ name: sel.name, grams, kcal: sel.kcal * k, p: sel.p * k, f: sel.f * k, c: sel.c * k, source: sel.code ? "barcode" : "manual" }], date, g("m-meal").value);
         close();
       };
       setTimeout(() => { const i = g("m-g"); if (i) { i.focus(); i.select(); } }, 200);
@@ -1420,6 +1445,118 @@ function openManual(o = {}) {
 
     g("m-q").oninput = showSugg;
     if (o.sel) pick(o.sel); else { showSugg(); setTimeout(() => g("m-q").focus(), 250); }
+  });
+}
+
+/* ---------- штрихкоды ---------- */
+const sharedCache = {};
+let sharedT = 0;
+function sharedSearch(q, cb) {
+  clearTimeout(sharedT);
+  if (!API_URL || !S.player || q.length < 3) return;
+  const key = q.toLowerCase().replace(/\s*\d+\s*(г|гр|грамм|мл)?\s*$/i, "").trim();
+  if (key.length < 3) return;
+  const done = foods => foods && foods.length && cb(foods);
+  if (sharedCache[key]) return done(sharedCache[key]);
+  sharedT = setTimeout(async () => {
+    try { const r = await api("foods_search", { q: key }); sharedCache[key] = r.foods || []; done(sharedCache[key]); } catch { /* офлайн */ }
+  }, 450);
+}
+function needServer() {
+  if (API_URL && S.player) return false;
+  system({ tag: "СИСТЕМА", head: "Нужен сервер", body: "Общая база продуктов работает через сервер. Войди в рейтинг в разделе «Игрок».", btn: "Понятно" });
+  return true;
+}
+function startScan(date, meal) {
+  if (needServer()) return;
+  loadScanner().then(m => m.openScanner({ esc, onCode: c => lookupBarcode(c, date, meal), onManual: () => askCode(date, meal) }))
+    .catch(e => toast(e.message, true));
+}
+function askCode(date, meal) {
+  sheet(`<h2>Штрихкод</h2><div class="small mb">Введи цифры под штрихкодом (8–13 цифр).</div>
+    <input class="in" id="bc-in" inputmode="numeric" placeholder="4600000000000" autocomplete="off">
+    <button class="btn block mt" id="bc-go">Найти</button>`, (el, close) => {
+    const go = () => { const c = el.querySelector("#bc-in").value.replace(/\D/g, ""); if (c.length < 8) return toast("Слишком короткий код", true); close(); lookupBarcode(c, date, meal); };
+    el.querySelector("#bc-go").onclick = go;
+    el.querySelector("#bc-in").onkeydown = e => { if (e.key === "Enter") go(); };
+    setTimeout(() => el.querySelector("#bc-in").focus(), 250);
+  });
+}
+const prodSel = pr => ({ name: pr.brand && !pr.name.toLowerCase().includes(pr.brand.toLowerCase()) ? `${pr.name} ${pr.brand}` : pr.name,
+  kcal: r0(pr.kcal), p: r1(pr.p), f: r1(pr.f), c: r1(pr.c), pc: pr.serving || 0, code: pr.code, source: pr.source, by: pr.by });
+async function lookupBarcode(code, date, meal) {
+  S.barcodes = S.barcodes || {};
+  let closeWait = () => {};
+  sheet(`<div class="center"><div class="tag-sys">▦ ${esc(code)}</div><div class="mt"><span class="spinner"></span></div><div class="small muted mt">Система ищет продукт…</div></div>`, (el, close) => { closeWait = close; });
+  let pr = null, offline = false;
+  try { pr = (await api("barcode", { token: S.player.token, code })).product; }
+  catch { offline = true; pr = S.barcodes[code] || null; }
+  closeWait();
+  if (pr) {
+    S.barcodes[code] = pr; save();
+    if (S.sound !== false) sfx("tap");
+    openManual({ date, meal, sel: prodSel(pr) });
+    return;
+  }
+  if (offline) return toast("Нет связи с сервером. Попробуй позже или введи вручную.", true);
+  openNewProduct(code, date, meal);
+}
+function openNewProduct(code, date, meal) {
+  sheet(`<div class="tag-sys">НОВЫЙ ПРОДУКТ</div>
+    <h2 style="margin-top:6px">Его ещё нет в базе</h2>
+    <div class="small mb">Добавь его — и все игроки смогут сканировать этот продукт. Награда: <b style="color:var(--gold,#ffd25a)">+15 XP</b>.</div>
+    <button class="btn violet block" id="np-photo">📷 Сфоткать этикетку — ИИ заполнит</button>
+    <div class="tiny dim mt">Сфоткай таблицу «Пищевая ценность на 100 г» крупно и ровно.</div>
+    <label class="f mt">Название<input class="in" id="np-n" placeholder="Например: йогурт клубничный" autocomplete="off"></label>
+    <label class="f">Бренд (если есть)<input class="in" id="np-b" autocomplete="off"></label>
+    <div class="tiny muted mt">На 100 г, как на этикетке:</div>
+    <div class="grid4 mt">
+      <label class="f">Ккал<input class="in" id="np-k" inputmode="decimal"></label>
+      <label class="f">Белки<input class="in" id="np-p" inputmode="decimal"></label>
+      <label class="f">Жиры<input class="in" id="np-f" inputmode="decimal"></label>
+      <label class="f">Углев.<input class="in" id="np-c" inputmode="decimal"></label>
+    </div>
+    <label class="f">Вес упаковки, г (если указан)<input class="in" id="np-s" inputmode="decimal"></label>
+    <div class="tiny dim">▦ ${esc(code)}</div>
+    <button class="btn-epic block mt" id="np-save">Добавить в общую базу</button>`, (el, close) => {
+    const g = id => el.querySelector("#" + id);
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.className = "hidden"; el.appendChild(inp);
+    g("np-photo").onclick = () => { inp.value = ""; inp.click(); };
+    inp.onchange = async () => {
+      const f = inp.files[0]; if (!f) return;
+      const btn = g("np-photo"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> ИИ читает этикетку…`;
+      try {
+        const img = await loadImage(f);
+        const r = await api("barcode_label", { token: S.player.token, image: drawScaled(img, 1400, 0.85) });
+        if (!r.found) toast("Не удалось прочитать таблицу. Попробуй крупнее или введи сам.", true);
+        else {
+          if (r.name && !g("np-n").value) g("np-n").value = r.name;
+          g("np-k").value = r0(r.kcal); g("np-p").value = r1(r.protein); g("np-f").value = r1(r.fat); g("np-c").value = r1(r.carbs);
+          if (r.serving > 0) g("np-s").value = r0(r.serving);
+          toast("Готово. Сверь цифры с этикеткой.");
+        }
+      } catch (e) { toast(e.message, true); }
+      btn.disabled = false; btn.textContent = "📷 Сфоткать этикетку — ИИ заполнит";
+    };
+    g("np-save").onclick = async () => {
+      const pr = { code, name: g("np-n").value.trim(), brand: g("np-b").value.trim(), kcal: num(g("np-k").value), p: num(g("np-p").value),
+        f: num(g("np-f").value), c: num(g("np-c").value), serving: num(g("np-s").value) || null };
+      if (pr.name.length < 2) return toast("Укажи название", true);
+      if (!(pr.kcal > 0) && !(pr.p + pr.f + pr.c > 0)) return toast("Укажи КБЖУ с этикетки", true);
+      const btn = g("np-save"); btn.disabled = true;
+      try {
+        const r = await api("barcode_add", { token: S.player.token, ...pr });
+        S.barcodes = S.barcodes || {}; S.barcodes[code] = { ...pr, source: "player", by: S.player.name };
+        if (r.first) {
+          S.mapped = (S.mapped || 0) + 1;
+          const todays = S.adj.filter(a => a.date === today() && a.why === "Продукт в общую базу").length;
+          if (todays < 5) S.adj.push({ date: today(), xp: 15, why: "Продукт в общую базу" });
+        }
+        save(); close();
+        if (r.first) system({ tag: "ОБЩАЯ БАЗА", head: "Продукт добавлен", body: `«${pr.name}» теперь знают все игроки.\n+15 XP`, btn: "Дальше" });
+        openManual({ date, meal, sel: prodSel({ ...pr, source: "player", by: S.player.name }) });
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
   });
 }
 

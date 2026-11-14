@@ -1,5 +1,5 @@
 // ARISE — серверная функция Supabase.
-// Действия: register, sync, leaderboard, restore, analyze, estimate, skill, rename.
+// Действия: register, sync, leaderboard, restore, analyze, estimate, skill, rename, barcode*, foods_search и др.
 // ИИ: бесплатно через Groq (текст: gpt-oss-120b, фото: qwen3.8-27b) с запасным Cloudflare Workers AI для фото.
 // Если задан ANTHROPIC_API_KEY — всё идёт через Claude Haiku 5.5.
 // Секреты: GROQ_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (или ANTHROPIC_API_KEY),
@@ -186,6 +186,48 @@ function imageParts(image: string, hint: string): Block[] {
     { image },
     { text: hint ? `Уточнение от пользователя: ${hint}\n\nОпредели продукты на фото и оцени КБЖУ.` : "Определи продукты на фото и оцени КБЖУ." },
   ];
+}
+
+/* ---------- штрихкоды: общая база продуктов ---------- */
+const LABEL_SYSTEM = `You read nutrition labels of packaged food (any language, often Russian/Uzbek/English).
+Return values PER 100 g (or per 100 ml). If the label gives only per-serving values and the serving weight, convert to per 100 g.
+If energy is given only in kJ, convert: kcal = kJ / 4.184.
+name: short product name in Russian, lower-case, with brand if visible (e.g. "йогурт danone клубника").
+serving: grams in one package/serving if printed, else 0.
+If no nutrition table is readable, set found=false and zeros.`;
+const LABEL_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    found: { type: "BOOLEAN" }, name: { type: "STRING" },
+    kcal: { type: "NUMBER" }, protein: { type: "NUMBER" }, fat: { type: "NUMBER" }, carbs: { type: "NUMBER" }, serving: { type: "NUMBER" },
+  },
+  required: ["found", "name", "kcal", "protein", "fat", "carbs", "serving"],
+};
+const validCode = (c: unknown) => { const s = String(c ?? "").replace(/\D/g, ""); return s.length >= 8 && s.length <= 14 ? s : ""; };
+const n1 = (x: unknown, max: number) => { const v = Number(x); return Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v * 10) / 10 : null; };
+/** Продукт из Open Food Facts → наш формат на 100 г (или null). */
+function fromOFF(code: string, pr: any) {
+  if (!pr) return null;
+  const nu = pr.nutriments ?? {};
+  let kcal = Number(nu["energy-kcal_100g"]);
+  if (!Number.isFinite(kcal) && Number.isFinite(Number(nu.energy_100g))) kcal = Number(nu.energy_100g) / 4.184;
+  if (!Number.isFinite(kcal) || kcal < 0 || kcal > 950) return null;
+  const name = String(pr.product_name_ru || pr.product_name || pr.generic_name_ru || pr.generic_name || "").trim();
+  if (!name) return null;
+  const brand = String(pr.brands ?? "").split(",")[0].trim();
+  const sv = Number(pr.serving_quantity);
+  return { code, name: name.slice(0, 80), brand: brand.slice(0, 40) || null, kcal: Math.round(kcal),
+    p: n1(nu.proteins_100g, 100) ?? 0, f: n1(nu.fat_100g, 100) ?? 0, c: n1(nu.carbohydrates_100g, 100) ?? 0,
+    serving: Number.isFinite(sv) && sv > 0 && sv < 3000 ? Math.round(sv) : null, source: "off" };
+}
+async function offLookup(code: string) {
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_ru,generic_name,generic_name_ru,brands,nutriments,serving_quantity`,
+      { headers: { "User-Agent": "ARISE-calories/1.0 (personal app)" }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.status === 1 ? fromOFF(code, d.product) : null;
+  } catch { return null; }
 }
 
 const MODEL = "claude-haiku-5-5";
@@ -786,6 +828,79 @@ Deno.serve(async (req) => {
         return json({ live: (list ?? []).filter((d) => !(d.status === "pending" && now - new Date(d.created_at).getTime() > 10 * 60e3))
           .map((d) => ({ ...d, a_name: nm[d.a], b_name: nm[d.b] })), server_now: now });
       }
+      case "barcode": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const code = validCode(b.code);
+        if (!code) return fail("Неверный штрихкод");
+        let { data: f } = await db.from("foods").select("*").eq("code", code).maybeSingle();
+        if (!f) {
+          const off = await offLookup(code);
+          if (off) { await db.from("foods").upsert(off, { onConflict: "code" }); f = { ...off, uses: 0, added_by: null }; }
+        }
+        if (!f) return json({ product: null, code });
+        await db.from("foods").update({ uses: (f.uses ?? 0) + 1 }).eq("code", code);
+        let by: string | null = null;
+        if (f.added_by) { const { data: a } = await db.from("players").select("name").eq("id", f.added_by).maybeSingle(); by = a?.name ?? null; }
+        return json({ product: { code, name: f.name, brand: f.brand, kcal: Number(f.kcal), p: Number(f.p), f: Number(f.f), c: Number(f.c),
+          serving: f.serving ? Number(f.serving) : null, source: f.source, by, mine: f.added_by === p.id, uses: (f.uses ?? 0) + 1 } });
+      }
+      case "barcode_add": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const code = validCode(b.code);
+        if (!code) return fail("Неверный штрихкод");
+        const name = String(b.name ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+        if (name.length < 2) return fail("Укажи название продукта");
+        const kcal = n1(b.kcal, 950), pp = n1(b.p, 100), ff = n1(b.f, 100), cc = n1(b.c, 100);
+        if (kcal == null || pp == null || ff == null || cc == null) return fail("Проверь КБЖУ: значения на 100 г");
+        if (pp + ff + cc > 101) return fail("Белки + жиры + углеводы не могут быть больше 100 г на 100 г");
+        const est = 4 * pp + 9 * ff + 4 * cc;
+        if (kcal > 20 && est > 0 && Math.abs(est - kcal) / kcal > 0.35) return fail(`Калории не сходятся с БЖУ (по БЖУ выходит ~${Math.round(est)} ккал). Проверь этикетку.`);
+        const today0 = new Date(); today0.setUTCHours(0, 0, 0, 0);
+        const { count } = await db.from("foods").select("code", { count: "exact", head: true }).eq("added_by", p.id).gte("created_at", today0.toISOString());
+        if ((count ?? 0) >= 20) return fail("Сегодня ты уже добавил 20 продуктов. Продолжим завтра.", 429);
+        const { data: ex } = await db.from("foods").select("code,added_by").eq("code", code).maybeSingle();
+        if (ex && ex.added_by !== p.id) return fail("Этот продукт уже есть в базе");
+        const sv = n1(b.serving, 3000);
+        await db.from("foods").upsert({ code, name, brand: String(b.brand ?? "").trim().slice(0, 40) || null, kcal, p: pp, f: ff, c: cc,
+          serving: sv && sv > 0 ? sv : null, source: "player", added_by: p.id }, { onConflict: "code" });
+        await db.from("food_reports").delete().eq("code", code);
+        if (!ex) await postEvent(p.id, "food", `добавил в общую базу: ${name}`);
+        return json({ ok: true, first: !ex });
+      }
+      case "barcode_report": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const code = validCode(b.code);
+        if (!code) return fail("Неверный штрихкод");
+        await db.from("food_reports").upsert({ code, player_id: p.id }, { onConflict: "code,player_id" });
+        const { count } = await db.from("food_reports").select("code", { count: "exact", head: true }).eq("code", code);
+        const { data: f } = await db.from("foods").select("added_by").eq("code", code).maybeSingle();
+        // 2 жалобы (или жалоба автора) — продукт убирается, следующий игрок добавит верные данные
+        if (f && ((count ?? 0) >= 2 || f.added_by === p.id)) { await db.from("foods").delete().eq("code", code); return json({ ok: true, removed: true }); }
+        return json({ ok: true, removed: false });
+      }
+      case "barcode_label": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const image = String(b.image ?? "");
+        if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
+        const limit = int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000);
+        const day = todayUTC5();
+        const used = p.photo_day === day ? p.photo_count : 0;
+        if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Введи данные с этикетки вручную.`, 429);
+        await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
+        return json(await ai([{ image }, { text: "Прочитай таблицу пищевой ценности на этикетке." }], LABEL_SYSTEM, LABEL_SCHEMA, { maxTokens: 800 }));
+      }
+      case "foods_search": {
+        const q = String(b.q ?? "").trim().toLowerCase().replace(/[%_,()]/g, " ").replace(/\s+/g, " ").slice(0, 40);
+        if (q.length < 3) return json({ foods: [] });
+        let req = db.from("foods").select("code,name,brand,kcal,p,f,c,serving,source");
+        for (const w of q.split(" ").slice(0, 3)) req = req.ilike("name", `%${w}%`);
+        const { data } = await req.order("uses", { ascending: false }).limit(6);
+        return json({ foods: (data ?? []).map((f) => ({ ...f, kcal: Number(f.kcal), p: Number(f.p), f: Number(f.f), c: Number(f.c), serving: f.serving ? Number(f.serving) : null })) });
+      }
       case "rename": {
         const p = await playerByToken(b.token);
         if (!p) return fail("Неверный код игрока", 401);
@@ -806,4 +921,4 @@ Deno.serve(async (req) => {
 });
 
 // для проверки в CI (.github/workflows/test-ai.yml)
-export { ai, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts };
+export { ai, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts, LABEL_SYSTEM, LABEL_SCHEMA, fromOFF, offLookup };

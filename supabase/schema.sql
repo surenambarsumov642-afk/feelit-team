@@ -117,3 +117,28 @@ create table if not exists public.live_duels (
   created_at timestamptz not null default now()
 );
 alter table public.live_duels enable row level security;
+
+-- этап 5: штрихкоды — общая база продуктов (Open Food Facts + добавленные игроками)
+create table if not exists public.foods (
+  code text primary key,
+  name text not null,
+  brand text,
+  kcal numeric not null,
+  p numeric not null default 0,
+  f numeric not null default 0,
+  c numeric not null default 0,
+  serving numeric,
+  source text not null default 'player',
+  added_by uuid references public.players(id) on delete set null,
+  uses int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.foods enable row level security;
+create index if not exists foods_name_idx on public.foods (lower(name));
+create table if not exists public.food_reports (
+  code text not null,
+  player_id uuid not null references public.players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (code, player_id)
+);
+alter table public.food_reports enable row level security;

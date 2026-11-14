@@ -27,3 +27,5 @@ jobs:
         run: deno run -A supabase/tests/push_test.ts
       - name: Запросы к ИИ
         run: deno run -A supabase/tests/ai_test.ts food.jpg
+      - name: Штрихкоды (Open Food Facts + этикетка)
+        run: deno run -A supabase/tests/barcode_test.ts

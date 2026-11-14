@@ -481,3 +481,12 @@ a{color:var(--blue2)}
 .live-win{border-color:rgba(255,195,90,.45)}
 .live-win .win-h{color:#ffd99a}
 .duel.live.pending,.duel.live.active{border-color:rgba(255,195,90,.55);box-shadow:0 0 14px rgba(255,195,90,.15)}
+
+/* ---------- этап 5: штрихкоды ---------- */
+.add-opt.wide{grid-column:span 2;flex-direction:row;justify-content:flex-start;text-align:left;padding:14px 16px;gap:14px}
+.add-opt.wide div{display:flex;flex-direction:column;gap:4px}
+.scan-ov video{transform:none}
+.scan-frame{position:absolute;left:7.5%;right:7.5%;top:50%;height:25vh;transform:translateY(-50%);border:2px solid rgba(95,240,255,.85);
+  border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45),0 0 24px rgba(95,240,255,.5);pointer-events:none}
+.scan-frame i{position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ff3b5c;box-shadow:0 0 10px #ff3b5c;animation:scanline 1.6s ease-in-out infinite alternate}
+@keyframes scanline{from{top:12%}to{top:88%}}
