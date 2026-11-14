@@ -109,6 +109,8 @@ export function statusCard() {
 }
 
 /* ============================ экран «Навыки» ============================ */
+let autoOpen = false; // сразу открыть интервью после анимации Врат
+
 export function renderSkills($app) {
   const S = X.S();
   if (!S.skills) S.skills = [];
@@ -117,184 +119,286 @@ export function renderSkills($app) {
     $app.innerHTML = `<div class="screen-title"><h1>Навыки</h1></div><div class="win"><div class="small muted">Навыки работают через сервер: войди в рейтинг в Настройках.</div></div>`;
     return;
   }
-  if (!sk) return renderHome($app);
-  if (sk.status === "interview") return renderInterview($app, sk);
+  if (!sk || sk.status === "interview") {
+    renderGate($app, sk);
+    if (sk && autoOpen) { autoOpen = false; openInterview(sk); }
+    return;
+  }
   if (sk.status === "preview") return renderPreview($app, sk);
   return renderActive($app, sk);
 }
 
-function renderHome($app) {
-  const S = X.S(), done = finishedSkills();
-  $app.innerHTML = `<div class="screen-title"><h1>Навыки</h1></div>
-    <div class="win violet"><div class="win-h">Освоить навык</div>
-      <div class="small mb">Система проведёт интервью, проверит твой уровень и построит план на 30 дней: каждый день — одно конкретное задание,
-      проверка твоей работы, повторение, еженедельный босс и финальный проект.</div>
-      <div class="notice mb">[ПРЕДУПРЕЖДЕНИЕ] Принятый план нельзя отменить. Пропуск дня — штраф и титул «Беглец».</div>
-      <button class="btn violet block" id="sk-new">Начать интервью</button></div>
-    ${done.length ? `<div class="win"><div class="win-h">Освоенные навыки</div>${done.map(s => `<div class="ach got">
+/* ---------- Врата ---------- */
+const RUNES = "ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ";
+function gateHtml(big) {
+  const ring = (cls, n) => `<div class="g-ring ${cls}">${Array.from({ length: n }, (_, i) =>
+    `<span style="transform:rotate(${i * 360 / n}deg) translateY(var(--r))">${RUNES[(i * 7) % RUNES.length]}</span>`).join("")}</div>`;
+  const parts = Array.from({ length: 14 }, (_, i) => `<i style="--a:${i * 26}deg;--d:${(i % 5) * 0.6}s;--s:${2.6 + (i % 4) * 0.5}s"></i>`).join("");
+  return `<div class="gate ${big ? "big" : ""}">
+    <div class="g-glow"></div>${ring("r1", 24)}${ring("r2", 16)}<div class="g-ring r3"></div>
+    <div class="g-core"></div><div class="g-parts">${parts}</div></div>`;
+}
+function renderGate($app, sk) {
+  const done = finishedSkills();
+  $app.innerHTML = `<div class="gate-screen">
+      ${gateHtml()}
+      <div class="gate-title">ВРАТА НАВЫКА</div>
+      <div class="gate-sub">Один навык · 30 дней · без отмены</div>
+      <button class="btn-epic" id="sk-open">${sk ? "Вернуться во Врата" : "Открыть Врата"}</button>
+      ${sk ? `<div class="tiny muted center mt">Интервью сохранено: вопрос ${(sk.qi || 0) + 1}</div>` : ""}
+    </div>
+    <div class="gate-feats">
+      <div><b>🜂</b><span>План под тебя<br><small>после интервью и проверки уровня</small></span></div>
+      <div><b>⚔</b><span>Проверка каждой работы<br><small>разбор от Системы</small></span></div>
+      <div><b>♛</b><span>Боссы и финальный проект<br><small>процент освоения и ранг</small></span></div>
+    </div>
+    ${done.length ? `<div class="win violet mt"><div class="win-h">Освоенные навыки</div>${done.map(s => `<div class="ach got">
         <div class="ic">${masteryRank(s.mastery)}</div>
-        <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}</div><div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div></div></div>`).join("")}</div>` : ""}`;
-  $app.querySelector("#sk-new").onclick = () => {
-    S.skills.push({ id: Date.now().toString(36), status: "interview", step: 1, level: 1, answers: { city: "Ташкент", lang: "ru", tone: "strict", off: [] },
-      tasks: {}, bosses: {}, cards: [], journal: [] });
-    X.save(); X.render();
-  };
+        <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}</div><div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div></div></div>`).join("")}</div>` : ""}
+    ${sk ? `<button class="btn ghost block mt" id="sk-drop">Отменить интервью</button>` : ""}`;
+  $app.querySelector("#sk-open").onclick = () => sk ? openInterview(sk) : openGateAnimation();
+  const dr = $app.querySelector("#sk-drop");
+  if (dr) dr.onclick = () => { if (!confirm("Отменить интервью? Ответы удалятся.")) return; X.S().skills = X.S().skills.filter(s => s !== sk); X.save(); X.render(); };
 }
 
-/* ============================ интервью ============================ */
+function typeText(el, text, speed = 22) {
+  return new Promise(res => {
+    let i = 0, stop = false;
+    el.textContent = ""; el.classList.add("typing");
+    const skip = () => { stop = true; };
+    el.addEventListener("click", skip, { once: true });
+    const tick = () => {
+      if (stop) { el.textContent = text; el.classList.remove("typing"); return res(); }
+      el.textContent = text.slice(0, ++i);
+      if (i >= text.length) { el.classList.remove("typing"); return res(); }
+      setTimeout(tick, text[i - 1] === "." ? speed * 8 : speed);
+    };
+    tick();
+  });
+}
+
+function openGateAnimation() {
+  const ov = document.createElement("div");
+  ov.className = "gate-ov";
+  ov.innerHTML = `<div class="gate-ov-in">${gateHtml(true)}</div><div class="gate-flash"></div>
+    <div class="gate-msg"><div class="tag-sys">СИСТЕМА</div><p id="gm1"></p><p id="gm2"></p><p id="gm3"></p>
+    <button class="btn-epic hidden" id="gm-go">Я готов</button></div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add("on"));
+  setTimeout(async () => {
+    ov.classList.add("flash");
+    await new Promise(r => setTimeout(r, 700));
+    ov.classList.add("talk");
+    await typeText(ov.querySelector("#gm1"), "Обнаружен скрытый потенциал.");
+    await typeText(ov.querySelector("#gm2"), "Прежде чем открыть путь, Система должна узнать тебя.");
+    await typeText(ov.querySelector("#gm3"), "Отвечай честно. От этого зависит твой план.");
+    const go = ov.querySelector("#gm-go"); go.classList.remove("hidden");
+    go.onclick = () => {
+      const S = X.S();
+      const sk = { id: Date.now().toString(36), status: "interview", qi: 0, level: 1,
+        answers: { city: "Ташкент", lang: "ru", tone: "strict", off: [], hard: [], format: [] }, tasks: {}, bosses: {}, cards: [], journal: [] };
+      S.skills.push(sk); X.save();
+      ov.classList.add("out"); setTimeout(() => ov.remove(), 500);
+      autoOpen = true; X.render();
+    };
+  }, 900);
+}
+
+/* ---------- интервью: слайды ---------- */
 const chips = (name, list, sel, multi) => `<div class="chips-row">${list.map(v => {
   const [val, label] = Array.isArray(v) ? v : [v, v];
   const on = multi ? (sel || []).includes(val) : sel === val;
   return `<button class="chip-b ${on ? "on" : ""}" data-chip="${name}" data-val="${e(val)}">${e(label)}</button>`;
 }).join("")}</div>`;
 
-function renderInterview($app, sk) {
-  const a = sk.answers, step = sk.step;
-  const steps = ["Цель", "Опыт", "Ресурсы", "Стиль", "Проверка"];
-  const head = `<div class="screen-title"><h1>Интервью</h1><span class="sub">шаг ${step}/5 · ${steps[step - 1]}</span></div>
-    <div class="bar violet mb"><i style="width:${step / 5 * 100}%"></i></div>`;
-  let body = "";
-  if (step === 1) body = `<div class="win violet"><div class="win-h">Цель и смысл</div>
-      <label class="f">Какой навык хочешь освоить?<input class="in" id="i-goal" value="${e(a.goal || "")}" placeholder="Начни писать: ИИ, монтаж, английский…" autocomplete="off"></label>
-      <div id="i-goal-sugg"></div>
-      <label class="f mt">Что именно хочешь УМЕТЬ через 30 дней? Опиши результат, который можно показать.
-        <textarea class="in" id="i-result" rows="2" placeholder="Например: делать рекламные ролики для кафе с помощью ИИ">${e(a.result || "")}</textarea></label>
-      <label class="f mt">Зачем тебе это? Что изменится, когда научишься?
-        <textarea class="in" id="i-why" rows="2" placeholder="Например: хочу зарабатывать на этом, сменить работу…">${e(a.why || "")}</textarea></label>
-      <label class="f mt">Как поймёшь через месяц, что всё получилось?
-        <textarea class="in" id="i-success" rows="2" placeholder="Например: сделаю 3 ролика и один продам">${e(a.success || "")}</textarea></label>
-      <div id="i-clar"></div>
-      <button class="btn violet block mt" id="i-next">Дальше</button></div>`;
-  if (step === 2) body = `<div class="win violet"><div class="win-h">Где ты сейчас</div>
-      <label class="f">Что ты уже пробовал в этой теме? Что получалось, а что нет?
-        <textarea class="in" id="i-tried" rows="3" placeholder="Честно. «Ничего» — тоже ответ.">${e(a.tried || "")}</textarea></label>
-      <div class="f mt">Что для тебя сложнее всего, когда учишься новому? (можно несколько)</div>
-      ${chips("hard", HARD, a.hard, true)}
-      <button class="btn violet block mt" id="i-next">Дальше</button></div>`;
-  if (step === 3) body = `<div class="win violet"><div class="win-h">Ресурсы</div>
-      <div class="f">Сколько минут в день реально готов тратить в будни?</div>${chips("wk", ["15", "30", "45", "60", "90", "120"], a.wk)}
-      <div class="f mt">А в выходные?</div>${chips("we", ["0", "15", "30", "60", "90", "120", "180"], a.we)}
-      <label class="f mt">Когда обычно свободен? Работа, учёба, тренировки?
-        <input class="in" id="i-free" value="${e(a.free || "")}" placeholder="Например: после 21:00, работа до 18:00, зал в 19:00"></label>
-      <div class="f mt">Выходные от навыка (дни отдыха, не больше двух)</div>${chips("off", [["1", "пн"], ["2", "вт"], ["3", "ср"], ["4", "чт"], ["5", "пт"], ["6", "сб"], ["0", "вс"]], a.off, true)}
-      <div class="f mt">С чего будешь учиться?</div>${chips("device", ["Только телефон", "Есть компьютер"], a.device)}
-      <div class="f mt">Бюджет на платные сервисы в месяц</div>${chips("budget", ["$0", "до $10", "до $30", "больше $30"], a.budget)}
-      <div class="f mt">Язык материалов</div>${chips("lang", [["ru", "Только русский"], ["sub", "Английский с субтитрами"], ["en", "Свободно английский"]], a.lang)}
-      <label class="f mt">Город (для примеров и рынка)<input class="in" id="i-city" value="${e(a.city || "")}"></label>
-      <button class="btn violet block mt" id="i-next">Дальше</button></div>`;
-  if (step === 4) body = `<div class="win violet"><div class="win-h">Как тебе лучше учиться</div>
-      <div class="f">Как проще разбираться? (можно несколько)</div>${chips("format", FORMATS, a.format, true)}
-      <div class="f mt">Как Системе с тобой говорить, когда ты сачкуешь?</div>${chips("tone", TONES, a.tone)}
-      <button class="btn violet block mt" id="i-next">Дальше: проверка уровня</button></div>`;
-  if (step === 5) body = `<div class="win violet"><div class="win-h">Проверка уровня</div><div id="i-diag"></div></div>`;
-  $app.innerHTML = head + body + (step > 1 ? `<button class="btn ghost block mt" id="i-back">Назад</button>` : "") +
-    `<button class="btn ghost block mt" id="i-cancel">Отменить интервью</button>`;
+function questions(sk) {
+  const a = sk.answers, Q = [];
+  const sec = s => ({ sec: s });
+  Q.push({ key: "goal", ...sec("Цель"), q: "Какой навык ты хочешь освоить?", hint: "Начни писать — Система подскажет. Можно своими словами.", type: "goal" });
+  Q.push({ key: "result", ...sec("Цель"), q: "Что именно ты хочешь УМЕТЬ через 30 дней?", hint: "Результат, который можно показать. Например: «делать рекламные ролики для кафе с помощью ИИ».", type: "textarea" });
+  Q.push({ key: "why", ...sec("Смысл"), q: "Зачем тебе это? Что изменится, когда научишься?", hint: "Эти слова Система напомнит тебе в день, когда захочется всё бросить.", type: "textarea" });
+  Q.push({ key: "success", ...sec("Смысл"), q: "Как ты поймёшь через месяц, что всё получилось?", hint: "Твоя планка. По ней оценят финальный проект.", type: "textarea" });
+  if (a.clar && a.clar.questions && a.clar.questions.length) {
+    a.clar.questions.forEach((q, i) => Q.push({ key: "clar" + i, ...sec("Уточнение"), q, hint: "Система уточняет, чтобы цель стала конкретной.", type: "textarea", clar: i }));
+    Q.push({ key: "goalFinal", ...sec("Уточнение"), q: "Твоя цель на месяц. Так верно?", hint: "Можно поправить формулировку.", type: "textarea" });
+  }
+  Q.push({ key: "tried", ...sec("Опыт"), q: "Что ты уже пробовал в этой теме? Что получалось, а что нет?", hint: "Честно. «Ничего» — тоже ответ.", type: "textarea" });
+  Q.push({ key: "hard", ...sec("Опыт"), q: "Что тебе сложнее всего, когда учишься новому?", hint: "Можно несколько. План будет закрывать именно это.", type: "multi", options: HARD });
+  Q.push({ key: "wk", ...sec("Время"), q: "Сколько минут в день реально готов тратить в будни?", hint: "Лучше честные 30 минут, чем обещанные 2 часа.", type: "chips", options: [["15", "15 мин"], ["30", "30 мин"], ["45", "45 мин"], ["60", "1 час"], ["90", "1,5 часа"], ["120", "2 часа"]] });
+  Q.push({ key: "we", ...sec("Время"), q: "А в выходные?", type: "chips", options: [["0", "Не буду"], ["15", "15 мин"], ["30", "30 мин"], ["60", "1 час"], ["90", "1,5 часа"], ["120", "2 часа"], ["180", "3 часа"]] });
+  Q.push({ key: "free", ...sec("Время"), q: "Когда ты обычно свободен? Работа, учёба, тренировки?", hint: "Например: «работа до 18:00, зал в 19:00, свободен после 21:00».", type: "text" });
+  Q.push({ key: "off", ...sec("Время"), q: "Дни отдыха от навыка?", hint: "До двух дней в неделю. В эти дни — только 10 минут повторения. Можно не выбирать.", type: "multi", options: [["1", "Пн"], ["2", "Вт"], ["3", "Ср"], ["4", "Чт"], ["5", "Пт"], ["6", "Сб"], ["0", "Вс"]], optional: true, max: 2 });
+  Q.push({ key: "device", ...sec("Ресурсы"), q: "С чего будешь учиться?", type: "chips", options: ["Только телефон", "Есть компьютер"] });
+  Q.push({ key: "budget", ...sec("Ресурсы"), q: "Готов тратить деньги на платные сервисы?", hint: "Если нет — план только на бесплатных инструментах.", type: "chips", options: [["$0", "Нет, только бесплатно"], ["до $10", "До $10 в месяц"], ["до $30", "До $30"], ["больше $30", "Больше $30"]] });
+  Q.push({ key: "lang", ...sec("Ресурсы"), q: "На каком языке тебе удобны материалы?", hint: "На английском уроков в разы больше.", type: "chips", options: [["ru", "Только русский"], ["sub", "Английский с субтитрами"], ["en", "Свободно английский"]] });
+  Q.push({ key: "city", ...sec("Ресурсы"), q: "Твой город?", hint: "Для примеров и того, где применять навык.", type: "text" });
+  Q.push({ key: "format", ...sec("Стиль"), q: "Как тебе проще разбираться?", hint: "Можно несколько.", type: "multi", options: FORMATS });
+  Q.push({ key: "tone", ...sec("Стиль"), q: "Как Системе говорить с тобой, когда ты сачкуешь?", type: "chips", options: TONES });
+  if (sk.diag && sk.diag.questions) sk.diag.questions.forEach((d, i) => Q.push({ key: "diag" + i, ...sec("Проверка уровня"), q: d.q, hint: (d.hint || "") + " Не знаешь — так и напиши, это нормально.", type: "textarea", diag: i }));
+  return Q;
+}
+const getA = (sk, q) => q.clar !== undefined ? ((sk.answers.clarAns || [])[q.clar] || "") : q.diag !== undefined ? ((sk.diag.answers || [])[q.diag] || "") : sk.answers[q.key];
+function setA(sk, q, v) {
+  const a = sk.answers;
+  if (q.clar !== undefined) { (a.clarAns = a.clarAns || [])[q.clar] = v; }
+  else if (q.diag !== undefined) { (sk.diag.answers = sk.diag.answers || [])[q.diag] = v; }
+  else a[q.key] = v;
+}
 
-  // чипы
-  $app.querySelectorAll("[data-chip]").forEach(c => c.onclick = () => {
-    const k = c.dataset.chip, v = c.dataset.val, multi = ["hard", "off", "format"].includes(k);
-    if (multi) {
-      const arr = a[k] = a[k] || [];
-      const i = arr.indexOf(v);
-      if (i >= 0) arr.splice(i, 1); else { if (k === "off" && arr.length >= 2) return X.toast("Не больше двух дней отдыха", true); arr.push(v); }
-    } else a[k] = v;
-    keep(); X.save(); renderInterview($app, sk);
-  });
-  const val = id => { const el = $app.querySelector("#" + id); return el ? el.value.trim() : ""; };
-  const keep = () => { for (const [id, k] of [["i-goal", "goal"], ["i-result", "result"], ["i-why", "why"], ["i-success", "success"], ["i-tried", "tried"], ["i-free", "free"], ["i-city", "city"]]) if ($app.querySelector("#" + id)) a[k] = val(id); };
-  $app.querySelectorAll("textarea, input").forEach(i => i.addEventListener("change", () => { keep(); X.save(); }));
-  const back = $app.querySelector("#i-back"); if (back) back.onclick = () => { keep(); sk.step--; X.save(); X.render(); };
-  $app.querySelector("#i-cancel").onclick = () => { if (!confirm("Отменить интервью? Ответы удалятся.")) return; X.S().skills = X.S().skills.filter(s => s !== sk); X.save(); X.render(); };
+function openInterview(sk) {
+  let ov = document.querySelector(".iv-ov");
+  if (!ov) {
+    ov = document.createElement("div"); ov.className = "iv-ov";
+    ov.innerHTML = `<div class="iv-bg"></div>
+      <div class="iv-top"><button class="icon-btn" id="iv-back">‹</button><div class="grow"><div class="iv-sec" id="iv-sec"></div>
+        <div class="bar violet" style="margin-top:6px"><i id="iv-prog"></i></div></div><button class="icon-btn" id="iv-x">✕</button></div>
+      <div class="iv-stage" id="iv-stage"></div>`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add("on"));
+  }
+  const close = () => { ov.classList.remove("on"); setTimeout(() => ov.remove(), 350); X.render(); };
+  ov.querySelector("#iv-x").onclick = close;
+  ov.querySelector("#iv-back").onclick = () => { if ((sk.qi || 0) > 0) { sk.qi--; X.save(); show(-1); } };
 
-  if (step === 1) {
-    const sug = () => {
-      const q = val("i-goal").toLowerCase();
-      const list = q.length < 1 ? [] : POPULAR.filter(p => p.toLowerCase().split(/[\s-]+/).some(w => w.startsWith(q.split(" ")[0]))).slice(0, 6);
-      $app.querySelector("#i-goal-sugg").innerHTML = list.length && !POPULAR.includes(val("i-goal")) ? `<div class="chips-row mt">${list.map(p => `<button class="chip-b" data-sg="${e(p)}">${e(p)}</button>`).join("")}</div>` : "";
-      $app.querySelectorAll("[data-sg]").forEach(b => b.onclick = () => { $app.querySelector("#i-goal").value = b.dataset.sg; a.goal = b.dataset.sg; X.save(); sug(); });
-    };
-    $app.querySelector("#i-goal").oninput = sug; sug();
-    if (a.clar && a.clar.questions && a.clar.questions.length) showClar();
-    $app.querySelector("#i-next").onclick = async () => {
-      keep();
-      if (!a.goal || !a.result || !a.why) return X.toast("Заполни навык, результат и «зачем»", true);
-      if (a.clar && a.clarDone) { sk.step = 2; X.save(); return X.render(); }
-      if (a.clar && a.clar.questions && a.clar.questions.length) {
-        a.clarAns = [...$app.querySelectorAll("[data-ca]")].map(x => x.value.trim());
-        if (a.clarAns.some(x => !x)) return X.toast("Ответь на уточняющие вопросы", true);
-        const g = $app.querySelector("#i-sugg-goal"); if (g) a.goalFinal = g.value.trim();
-        a.clarDone = true; sk.step = 2; X.save(); return X.render();
-      }
-      const btn = $app.querySelector("#i-next"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>`;
-      try {
-        a.clar = await ask("clarify", { skill: a.goal, result: a.result, why: a.why, success: a.success });
-        a.goalFinal = a.clar.suggestion || a.result;
-        if (!a.clar.vague || !(a.clar.questions || []).length) { a.clarDone = true; sk.step = 2; X.save(); return X.render(); }
-        X.save(); showClar(); btn.disabled = false; btn.textContent = "Дальше";
-      } catch (err) { X.toast(err.message, true); btn.disabled = false; btn.textContent = "Дальше"; }
-    };
-    function showClar() {
-      $app.querySelector("#i-clar").innerHTML = `<div class="notice mt">Система уточняет, чтобы цель стала конкретной:</div>
-        ${a.clar.questions.map((q, i) => `<label class="f mt">${e(q)}<input class="in" data-ca="${i}" value="${e((a.clarAns || [])[i] || "")}"></label>`).join("")}
-        <label class="f mt">Цель на месяц (можно поправить)<textarea class="in" id="i-sugg-goal" rows="2">${e(a.goalFinal || "")}</textarea></label>`;
+  const show = (dir = 1) => {
+    const Q = questions(sk);
+    if (sk.qi >= Q.length) return finish();
+    const q = Q[sk.qi];
+    ov.querySelector("#iv-sec").textContent = `${q.sec} · ${sk.qi + 1}/${Q.length}${sk.diag ? "" : "+"}`;
+    ov.querySelector("#iv-prog").style.width = (sk.qi / Q.length * 100) + "%";
+    ov.querySelector("#iv-back").style.visibility = sk.qi ? "visible" : "hidden";
+    const v = getA(sk, q);
+    const slide = document.createElement("div");
+    slide.className = "iv-slide " + (dir > 0 ? "from-r" : "from-l");
+    let input = "";
+    if (q.type === "text" || q.type === "goal") input = `<input class="in iv-in" id="iv-a" value="${e(v || "")}" autocomplete="off" placeholder="${q.type === "goal" ? "ИИ, монтаж, английский…" : ""}">${q.type === "goal" ? `<div id="iv-sugg" class="chips-row"></div>` : ""}`;
+    if (q.type === "textarea") input = `<textarea class="in iv-in" id="iv-a" rows="4">${e(v || "")}</textarea>`;
+    if (q.type === "chips") input = chips(q.key, q.options, v, false);
+    if (q.type === "multi") input = chips(q.key, q.options, v || [], true);
+    slide.innerHTML = `<div class="iv-tag">[ВОПРОС ${sk.qi + 1}]</div>
+      <div class="iv-q" id="iv-q"></div>
+      ${q.hint ? `<div class="iv-hint">${e(q.hint)}</div>` : ""}
+      <div class="iv-ans">${input}</div>
+      <button class="btn-epic iv-next" id="iv-next">${sk.qi === Q.length - 1 && sk.diag ? "Построить план" : "Далее"}</button>`;
+    const stage = ov.querySelector("#iv-stage");
+    const old = stage.querySelector(".iv-slide");
+    if (old) { old.classList.add(dir > 0 ? "to-l" : "to-r"); setTimeout(() => old.remove(), 380); }
+    stage.appendChild(slide);
+    requestAnimationFrame(() => requestAnimationFrame(() => slide.classList.add("in")));
+    typeText(slide.querySelector("#iv-q"), q.q, 16);
+
+    const inp = slide.querySelector("#iv-a");
+    if (inp) {
+      setTimeout(() => inp.focus({ preventScroll: true }), 420);
+      inp.oninput = () => { setA(sk, q, inp.value); X.save(); if (q.type === "goal") sugg(); };
+      if (q.type === "text" || q.type === "goal") inp.onkeydown = ev => { if (ev.key === "Enter") next(); };
     }
-  }
-  if (step === 2) $app.querySelector("#i-next").onclick = () => {
-    keep(); if (!a.tried) return X.toast("Расскажи, что уже пробовал (или «ничего»)", true);
-    sk.step = 3; X.save(); X.render();
+    const sugg = () => {
+      const box = slide.querySelector("#iv-sugg"); if (!box) return;
+      const t = (inp.value || "").toLowerCase().trim();
+      const list = !t ? POPULAR.slice(0, 6) : POPULAR.filter(p => p.toLowerCase().split(/[\s-]+/).some(w => t.split(/\s+/).some(x => x.length > 1 && w.startsWith(x)))).slice(0, 6);
+      box.innerHTML = list.filter(p => p !== inp.value).map(p => `<button class="chip-b" data-sg="${e(p)}">${e(p)}</button>`).join("");
+      box.querySelectorAll("[data-sg]").forEach(b => b.onclick = () => { inp.value = b.dataset.sg; setA(sk, q, inp.value); X.save(); sugg(); });
+    };
+    if (q.type === "goal") sugg();
+    slide.querySelectorAll("[data-chip]").forEach(c => c.onclick = () => {
+      const val = c.dataset.val;
+      if (q.type === "multi") {
+        const arr = Array.isArray(getA(sk, q)) ? [...getA(sk, q)] : [];
+        const i = arr.indexOf(val);
+        if (i >= 0) arr.splice(i, 1); else { if (q.max && arr.length >= q.max) return X.toast(`Не больше ${q.max}`, true); arr.push(val); }
+        setA(sk, q, arr); c.classList.toggle("on");
+      } else {
+        setA(sk, q, val);
+        slide.querySelectorAll("[data-chip]").forEach(x => x.classList.toggle("on", x === c));
+        X.save(); setTimeout(next, 280);
+      }
+      X.save();
+    });
+    const next = async () => {
+      const val = getA(sk, q);
+      const empty = Array.isArray(val) ? !val.length : !String(val || "").trim();
+      if (empty && !q.optional) { slide.classList.add("shake"); setTimeout(() => slide.classList.remove("shake"), 400); return X.toast("Ответь, чтобы продолжить", true); }
+      // после блока «цель» — уточнение у ИИ
+      if (q.key === "success" && !sk.answers.clar) {
+        await withLoader("Система анализирует цель…", async () => {
+          const a = sk.answers;
+          a.clar = await ask("clarify", { skill: a.goal, result: a.result, why: a.why, success: a.success });
+          a.goalFinal = a.clar.suggestion || a.result;
+          if (!a.clar.vague) a.clar.questions = [];
+        });
+        if (!sk.answers.clar) return;
+      }
+      // после стиля — проверка уровня от ИИ
+      if (q.key === "tone" && !sk.diag) {
+        await withLoader("Система готовит проверку уровня…", async () => {
+          const a = sk.answers;
+          sk.diag = await ask("diag", { skill: a.goal, goal: a.goalFinal || a.result, tried: a.tried, device: a.device });
+          sk.diag.answers = [];
+        });
+        if (!sk.diag) return;
+      }
+      sk.qi++; X.save(); show(1);
+    };
+    slide.querySelector("#iv-next").onclick = next;
   };
-  if (step === 3) $app.querySelector("#i-next").onclick = () => {
-    keep();
-    if (!a.wk || !a.we || !a.device || !a.budget || !a.lang) return X.toast("Выбери время, устройство, бюджет и язык", true);
-    sk.step = 4; X.save(); X.render();
+
+  const withLoader = async (text, fn) => {
+    const stage = ov.querySelector("#iv-stage");
+    const ld = document.createElement("div"); ld.className = "iv-loader";
+    ld.innerHTML = `${gateHtml()}<div class="iv-ld-t">${e(text)}</div>`;
+    stage.appendChild(ld);
+    try { await fn(); }
+    catch (err) { X.toast(err.message, true); }
+    finally { ld.classList.add("out"); setTimeout(() => ld.remove(), 300); }
   };
-  if (step === 4) $app.querySelector("#i-next").onclick = () => {
-    if (!a.format || !a.format.length || !a.tone) return X.toast("Выбери формат и тон", true);
-    sk.step = 5; X.save(); X.render();
+
+  const finish = async () => {
+    const stage = ov.querySelector("#iv-stage");
+    stage.innerHTML = `<div class="iv-build">${gateHtml(true)}
+      <div class="tag-sys">СИСТЕМА</div><div class="iv-steps" id="iv-steps"></div></div>`;
+    ov.querySelector("#iv-prog").style.width = "100%";
+    const steps = ["Анализ ответов", "Определение реального уровня", "Поиск слабых мест", "Финальный проект", "Построение 30 дней"];
+    const box = stage.querySelector("#iv-steps");
+    let k = 0;
+    const timer = setInterval(() => {
+      if (k > 0) box.children[k - 1].classList.add("ok");
+      if (k < steps.length) { const d = document.createElement("div"); d.textContent = steps[k]; box.appendChild(d); k++; }
+    }, 1600);
+    try {
+      await buildPlan(sk);
+      clearInterval(timer);
+      [...box.children].forEach(c => c.classList.add("ok"));
+      await new Promise(r => setTimeout(r, 500));
+      ov.classList.remove("on"); setTimeout(() => ov.remove(), 350);
+      X.render(); window.scrollTo(0, 0);
+    } catch (err) {
+      clearInterval(timer);
+      box.innerHTML = `<div class="bad">${e(err.message)}</div>`;
+      const b = document.createElement("button"); b.className = "btn-epic mt"; b.textContent = "Повторить"; b.onclick = finish;
+      box.appendChild(b);
+    }
   };
-  if (step === 5) stepDiag($app, sk);
+
+  show(1);
 }
 
-async function stepDiag($app, sk) {
-  const a = sk.answers, box = $app.querySelector("#i-diag");
-  if (!sk.diag) {
-    busy(box, "Система готовит проверку…");
-    try { sk.diag = await ask("diag", { skill: a.goal, goal: a.goalFinal, tried: a.tried, device: a.device }); sk.diag.answers = []; X.save(); }
-    catch (err) { box.innerHTML = `<div class="small bad">${e(err.message)}</div><button class="btn block mt" id="d-retry">Повторить</button>`; box.querySelector("#d-retry").onclick = () => stepDiag($app, sk); return; }
-  }
-  box.innerHTML = `<div class="small muted mb">Не самооценка — реальная проверка. Не знаешь — так и напиши, план будет с нуля. Это нормально.</div>
-    ${sk.diag.questions.map((q, i) => `<label class="f mt">${i + 1}. ${e(q.q)}<span class="tiny dim">${e(q.hint || "")}</span>
-      <textarea class="in" rows="3" data-da="${i}">${e(sk.diag.answers[i] || "")}</textarea></label>`).join("")}
-    <button class="btn violet block mt" id="d-go">Построить план</button>`;
-  box.querySelectorAll("[data-da]").forEach(t => t.onchange = () => { sk.diag.answers[+t.dataset.da] = t.value.trim(); X.save(); });
-  box.querySelector("#d-go").onclick = async () => {
-    box.querySelectorAll("[data-da]").forEach(t => sk.diag.answers[+t.dataset.da] = t.value.trim());
-    if (sk.diag.answers.filter(Boolean).length < sk.diag.questions.length) return X.toast("Ответь на все вопросы (можно «не знаю»)", true);
-    await buildPlan($app, sk, box);
-  };
-}
-
-async function buildPlan($app, sk, box) {
+async function buildPlan(sk) {
   const a = sk.answers;
   const start = X.addDays(X.today(), 1);
   const restDays = [];
   for (let n = 1; n <= 30; n++) if ((a.off || []).includes(String(X.parseD(X.addDays(start, n - 1)).getDay()))) restDays.push(n);
-  busy(box, "Система строит твой план на 30 дней… (до минуты)");
-  try {
-    const plan = await ask("plan", {
-      skill: a.goal, goal_30_days: a.goalFinal || a.result, why: a.why, success: a.success, clarifications: (a.clar && a.clar.questions || []).map((q, i) => ({ q, a: (a.clarAns || [])[i] })),
-      tried: a.tried, hardest: a.hard, minutes_weekday: a.wk, minutes_weekend: a.we, free_time: a.free, device: a.device, budget: a.budget,
-      materials_language: { ru: "только русский", sub: "английский с субтитрами", en: "свободно английский" }[a.lang], city: a.city,
-      formats: a.format, tone: TONES.find(t => t[0] === a.tone)[1], rest_days: restDays,
-      start_weekday: WD[X.parseD(start).getDay()], diagnostic: sk.diag.questions.map((q, i) => ({ q: q.q, answer: sk.diag.answers[i] })),
-    });
-    if (!plan.days || plan.days.length < 25) throw new Error("План получился неполным. Попробуй ещё раз.");
-    plan.days = plan.days.slice(0, 30).map((d, i) => ({ ...d, day: i + 1, rest: restDays.includes(i + 1) }));
-    sk.plan = plan; sk.status = "preview"; X.save(); X.render(); window.scrollTo(0, 0);
-  } catch (err) {
-    box.innerHTML = `<div class="small bad">${e(err.message)}</div><button class="btn block mt" id="d-retry">Повторить</button>`;
-    box.querySelector("#d-retry").onclick = () => buildPlan($app, sk, box);
-  }
+  const plan = await ask("plan", {
+    skill: a.goal, goal_30_days: a.goalFinal || a.result, why: a.why, success: a.success,
+    clarifications: (a.clar && a.clar.questions || []).map((q, i) => ({ q, a: (a.clarAns || [])[i] })),
+    tried: a.tried, hardest: a.hard, minutes_weekday: a.wk, minutes_weekend: a.we, free_time: a.free, device: a.device, budget: a.budget,
+    materials_language: { ru: "только русский", sub: "английский с субтитрами", en: "свободно английский" }[a.lang], city: a.city,
+    formats: a.format, tone: (TONES.find(t => t[0] === a.tone) || TONES[1])[1], rest_days: restDays,
+    start_weekday: WD[X.parseD(start).getDay()], diagnostic: sk.diag.questions.map((q, i) => ({ q: q.q, answer: (sk.diag.answers || [])[i] })),
+  });
+  if (!plan.days || plan.days.length < 30) throw new Error("План получился неполным. Нажми «Повторить».");
+  plan.days = plan.days.slice(0, 30).map((d, i) => ({ ...d, day: i + 1, rest: restDays.includes(i + 1) }));
+  sk.plan = plan; sk.status = "preview"; X.save();
 }
 
 /* ============================ предпросмотр плана ============================ */
@@ -311,7 +415,7 @@ function dayHtml(sk, d, opts = {}) {
 }
 function renderPreview($app, sk) {
   const p = sk.plan, pr = p.profile;
-  $app.innerHTML = `<div class="screen-title"><h1>План готов</h1><span class="sub">${e(p.skill_name)}</span></div>
+  $app.innerHTML = `<div class="reveal"><div class="screen-title"><h1>План готов</h1><span class="sub">${e(p.skill_name)}</span></div>
     <div class="win violet"><div class="win-h">Как Система тебя поняла</div>
       <div class="kv"><span class="muted">Уровень</span><b>${e(pr.level)}</b></div>
       <div class="small mt">${e(pr.level_note)}</div>
@@ -327,11 +431,11 @@ function renderPreview($app, sk) {
       ${p.days.filter(d => d.day > (w.n - 1) * 7 && (w.n === 4 ? d.day <= 30 : d.day <= w.n * 7)).map(d => dayHtml(sk, d, { edit: true })).join("")}
       ${w.n < 4 ? `<div class="tiny" style="color:var(--violet2)">⚔ День ${w.n * 7}: босс недели</div>` : `<div class="tiny" style="color:var(--violet2)">⚔ День 28: босс · День 30: защита проекта</div>`}</div>`).join("")}
     <div class="notice mb">Тапни «Изменить этот день», если что-то не подходит. После принятия план нельзя отменить.</div>
-    <button class="btn violet block" id="pv-accept">Принять план</button>
+    <button class="btn-epic block" id="pv-accept">Принять план</button>
     <button class="btn ghost block mt" id="pv-redo">Пересобрать план</button>
-    <button class="btn ghost block mt" id="pv-cancel">Отказаться</button>`;
+    <button class="btn ghost block mt" id="pv-cancel">Отказаться</button></div>`;
   $app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editDay(sk, +b.dataset.edit));
-  $app.querySelector("#pv-redo").onclick = () => { sk.status = "interview"; sk.step = 5; delete sk.plan; X.save(); X.render(); };
+  $app.querySelector("#pv-redo").onclick = () => { sk.status = "interview"; delete sk.plan; sk.qi = questions(sk).length - 1; X.save(); autoOpen = true; X.render(); };
   $app.querySelector("#pv-cancel").onclick = () => { if (!confirm("Отказаться от плана?")) return; X.S().skills = X.S().skills.filter(s => s !== sk); X.save(); X.render(); };
   $app.querySelector("#pv-accept").onclick = () => X.sheet(`<div class="center">
       <div class="tag-sys">ПРЕДУПРЕЖДЕНИЕ</div>
@@ -389,7 +493,8 @@ function renderActive($app, sk) {
   const due = sk.cards.filter(c => c.due <= td);
   const bossAvail = BOSS_DAYS.map((d, i) => ({ d, w: i + 1 })).filter(b => n >= b.d && !(sk.bosses[b.w] && sk.bosses[b.w].grade));
   const week = Math.min(4, Math.ceil(Math.min(n, 30) / 7));
-  $app.innerHTML = `<div class="screen-title"><h1>${e(p.skill_name)}</h1><span class="sub">Ур. ${sk.level} · день ${Math.min(n, 30)}/30</span></div>
+  $app.innerHTML = `<div class="sk-hero">${gateHtml()}<div class="sk-hero-t"><div class="gate-title" style="font-size:22px">${e(p.skill_name)}</div>
+      <div class="gate-sub" style="margin:4px 0 0">Ур. ${sk.level} · день ${Math.min(n, 30)} из 30</div></div></div>
     <div class="win violet">
       <div class="row"><div class="grow"><div class="tiny muted">Освоение сейчас</div><div class="sys-font" style="font-size:26px;color:#fff">${st.mastery}%</div></div>
         <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${masteryRank(st.mastery)}</div></div>

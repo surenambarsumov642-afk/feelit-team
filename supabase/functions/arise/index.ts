@@ -100,7 +100,7 @@ function imageParts(image: string, hint: string) {
 async function gemini(parts: unknown[], system = SYSTEM, schema: unknown = SCHEMA, temperature = 0.2) {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("На сервере не задан GEMINI_API_KEY");
-  const models = [Deno.env.get("GEMINI_MODEL"), "gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
+  const models = [Deno.env.get("GEMINI_MODEL"), "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
     .filter(Boolean) as string[];
   const body = {
     systemInstruction: { parts: [{ text: system }] },
@@ -123,7 +123,11 @@ async function gemini(parts: unknown[], system = SYSTEM, schema: unknown = SCHEM
     }
     lastErr = `${model}: ${r.status} ${(await r.text()).slice(0, 200)}`;
     console.error("gemini", lastErr);
-    // 404 — модели нет, 429 — исчерпан бесплатный лимит этой модели, 5xx — сбой: пробуем следующую
+    // 404 — модели нет, 429 — исчерпан лимит этой модели, 5xx — сбой: пробуем следующую
+    if (r.status === 403 && lastErr.includes("free tier is not available")) {
+      throw new Error("ИИ отключён: для ключа Gemini недоступен бесплатный тариф — владельцу нужно включить оплату в Google AI Studio.");
+    }
+    if (r.status === 400 && lastErr.includes("API key")) throw new Error("Ключ Gemini на сервере недействителен.");
     if (![404, 429, 500, 503].includes(r.status)) break;
   }
   if (lastErr.includes(" 429 ")) throw new Error("Бесплатный лимит ИИ на сегодня исчерпан. Попробуй позже.");
