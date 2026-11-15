@@ -109,7 +109,7 @@ async function syncNow() {
     await api("sync", {
       token: S.player.token,
       stats: { level: P.level, rank: P.rank, xp: P.xp, streak: P.streak, best_streak: P.longest, perfect_days: P.perfectDays,
-        workouts: P.workoutDays, skill_state: skillTodayState(), title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
+        workouts: P.workoutDays, skill_state: skillTodayState(), title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today(), remind_hour: S.remindHour ?? 19 },
       save: backup,
       days: Object.entries(P.days).slice(-400).map(([day, x]) => ({ day, xp: x.xp, norm: !!x.q.norm.done, workout: !!x.q.workout.done, quests: x.doneCount })),
     });
@@ -587,12 +587,85 @@ function todayWin(P) {
     <div class="tiny muted mt">${n === list.length ? "День закрыт. Так и строится сила." : `Всё за день — бонус +${XP.allBonus} XP.`}</div></div>`;
 }
 
+/* ============================ отчёт недели ============================ */
+// «Ты против себя»: эта неделя против прошлой и против себя 30 дней назад. Раз в неделю (вс/пн) — карточка на «Сегодня».
+function weekStats(P, end) {
+  const r = { xp: 0, active: 0, workouts: 0, logged: 0, perfect: 0 };
+  for (let i = 0; i < 7; i++) {
+    const d = P.days[addDays(end, -i)]; if (!d) continue;
+    r.xp += d.xp; if (d.s.count || d.q.workout.done) r.active++; if (d.q.workout.done) r.workouts++; if (d.s.count) r.logged++; if (d.all) r.perfect++;
+  }
+  return r;
+}
+function reportData(P) {
+  const td = today(), cur = weekStats(P, td), prev = weekStats(P, addDays(td, -7));
+  const d30 = addDays(td, -30), then = P.days[d30];
+  const w = (S.weights || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  const wNow = w.length ? w[w.length - 1].kg : null, wThen = (w.filter(x => x.date <= d30).pop() || w[0] || {}).kg ?? null;
+  return { cur, prev, lvlThen: then ? then.lvl : 1, lvlNow: P.level, wNow, wThen, streak: P.streak, rank: rankLabel(P.rank, P.level) };
+}
+const weekKey = () => { const d = parseD(today()); const day = (d.getDay() + 6) % 7; return addDays(today(), -day); };
+function reportWin(P) {
+  const wd = parseD(today()).getDay();
+  if (!(wd === 0 || wd === 1) || S.seen.report === weekKey() || !S.profile || S.profile.createdAt > addDays(today(), -3)) return "";
+  const r = reportData(P), dx = r.cur.xp - r.prev.xp;
+  return `<div class="win report-win" data-report style="cursor:pointer"><div class="win-h">Отчёт Системы · неделя<span class="right">›</span></div>
+    <div class="small"><b>+${fmtN(r.cur.xp)} XP</b> ${dx >= 0 ? `<span class="good">▲ ${fmtN(dx)}</span>` : `<span class="bad">▼ ${fmtN(-dx)}</span>`} к прошлой неделе · активных дней ${r.cur.active}/7</div>
+    <div class="tiny muted mt">Ты против себя 30 дней назад: LV ${r.lvlThen} → LV ${r.lvlNow}</div></div>`;
+}
+const dm = d => parseD(d).toLocaleDateString("ru", { day: "numeric", month: "long" });
+function openReport(P) {
+  S.seen.report = weekKey(); save();
+  const r = reportData(P);
+  const row = (n, a, b, unit = "") => { const d = a - b; return `<div class="rp-row"><span class="grow">${n}</span><b>${fmtN(a)}${unit}</b><span class="rp-d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} ${d ? fmtN(Math.abs(d)) : ""}</span></div>`; };
+  const wtxt = r.wNow != null && r.wThen != null && r.wNow !== r.wThen ? `${r.wThen} → ${r.wNow} кг` : r.wNow != null ? `${r.wNow} кг` : "—";
+  const better = r.cur.xp >= r.prev.xp;
+  sheet(`<div class="tag-sys">ОТЧЁТ СИСТЕМЫ</div><h2 style="margin:6px 0 2px">Неделя ${dm(addDays(today(), -6))} — ${dm(today())}</h2>
+    <div class="small muted mb">${better ? "Ты сильнее, чем неделю назад. Так и строится легенда." : "Неделя была тяжелее. Это нормально — главное, ты здесь."}</div>
+    <div class="win"><div class="win-h">Эта неделя против прошлой</div>
+      ${row("Опыт", r.cur.xp, r.prev.xp, " XP")}${row("Активных дней", r.cur.active, r.prev.active)}${row("Тренировок", r.cur.workouts, r.prev.workouts)}${row("Дней с учётом еды", r.cur.logged, r.prev.logged)}${row("Идеальных дней", r.cur.perfect, r.prev.perfect)}</div>
+    <div class="win violet"><div class="win-h">Ты против себя 30 дней назад</div>
+      <div class="kv"><span class="muted">Уровень</span><b>LV ${r.lvlThen} → LV ${r.lvlNow}</b></div>
+      <div class="kv"><span class="muted">Ранг</span><b>${esc(r.rank)}</b></div>
+      <div class="kv"><span class="muted">Вес</span><b>${wtxt}</b></div>
+      <div class="kv"><span class="muted">Серия</span><b>🔥 ${r.streak} дн.</b></div></div>
+    <button class="btn-epic block mt" id="rp-share" style="width:100%">Поделиться картинкой</button>
+    <div id="rp-img" class="center mt"></div>`, (el) => {
+    el.querySelector("#rp-share").onclick = async () => {
+      const blob = await reportImage(r);
+      const file = new File([blob], "ingot-week.png", { type: "image/png" });
+      try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: "Моя неделя в Ingot" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+      el.querySelector("#rp-img").innerHTML = `<img src="${URL.createObjectURL(blob)}" style="width:100%;border-radius:18px"><div class="tiny muted mt">Зажми картинку, чтобы сохранить</div>`;
+    };
+  });
+}
+function reportImage(r) {
+  const W = 1080, H = 1350, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  const bg = g.createRadialGradient(W / 2, 260, 80, W / 2, 500, 1100); bg.addColorStop(0, "#2b2f86"); bg.addColorStop(.5, "#0f1238"); bg.addColorStop(1, "#04050d");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const font = (w, sz) => `${w} ${sz}px -apple-system, "SF Pro Display", Inter, Segoe UI, sans-serif`;
+  g.textAlign = "center"; g.fillStyle = "#a9b6ff"; g.font = font(700, 30); g.fillText("I N G O T  ·  О Т Ч Ё Т  Н Е Д Е Л И", W / 2, 120);
+  g.fillStyle = "#fff"; g.font = font(300, 84); g.fillText(S.profile.name, W / 2, 250);
+  g.fillStyle = "#ffd36b"; g.font = font(600, 40); g.fillText(r.rank.toUpperCase() + "  ·  LV " + r.lvlNow, W / 2, 320);
+  const gold = g.createLinearGradient(0, 380, 0, 560); gold.addColorStop(0, "#fff3c4"); gold.addColorStop(1, "#ffb43a");
+  g.fillStyle = gold; g.font = font(200, 190); g.fillText("+" + fmtN(r.cur.xp).replace(/ /g, " "), W / 2, 560);
+  g.fillStyle = "#c9cff5"; g.font = font(500, 36); g.fillText("XP за неделю", W / 2, 620);
+  const items = [["🔥", r.streak + " дн.", "серия"], ["⚔", String(r.cur.workouts), "тренировок"], ["✓", r.cur.active + "/7", "активных дней"]];
+  items.forEach(([ic, v, n], i) => { const x = W / 2 + (i - 1) * 320; g.fillStyle = "rgba(255,255,255,.07)"; g.beginPath(); g.roundRect(x - 140, 700, 280, 230, 36); g.fill();
+    g.fillStyle = "#fff"; g.font = font(600, 64); g.fillText(v, x, 820); g.fillStyle = "#9aa3c7"; g.font = font(500, 30); g.fillText(n, x, 880); });
+  g.fillStyle = "#fff"; g.font = font(500, 44); g.fillText(`Месяц назад: LV ${r.lvlThen}  →  сейчас: LV ${r.lvlNow}`, W / 2, 1040);
+  g.fillStyle = "#8f97bd"; g.font = font(500, 32); g.fillText("Переплавь усилия в золото · Ingot", W / 2, 1250);
+  return new Promise(res => c.toBlob(res, "image/png"));
+}
+
 /* ============================ экран: Статус ============================ */
 function renderStatus(P) {
   const t = targets(), td = today(), d = P.days[td], s = d.s;
   const y = P.days[addDays(td, -1)];
   $app.innerHTML = `
     ${statusTop(P)}
+    ${reportWin(P)}
     ${todayWin(P)}
     ${skillToday().skill ? statusCard() : ""}
     <div class="win" data-godiary style="cursor:pointer">
@@ -617,6 +690,7 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelectorAll("[data-report]").forEach(b => b.onclick = () => { openReport(P); render(); });
   $app.querySelectorAll("[data-skresume]").forEach(b => b.onclick = () => { tab = "skills"; resumeInterview(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
@@ -709,6 +783,7 @@ function renderHunter(P) {
   const got = new Set(S.seen.ach.concat(ACH.filter(a => a.ok(P)).map(a => a.id)));
   $app.innerHTML = `
     ${hunterCard(P, true)}
+    <button class="btn block mb" id="open-report">📊 Отчёт Системы за неделю</button>
     ${finishedSkills().length ? `<div class="win violet"><div class="win-h">Навыки</div>${finishedSkills().map(sk => `<div class="kv"><span>${esc(sk.plan.skill_name)} · Ур. ${sk.level}</span><b>${masteryRank(sk.mastery)} · ${sk.mastery}%</b></div>`).join("")}</div>` : ""}
     ${weightWin(t)}
     <div class="win"><div class="win-h">Характеристики</div>
@@ -789,6 +864,7 @@ function renderPlayer(P) {
   else if (ptab === "about") renderAbout(P);
   else renderHunter(P);
   $app.insertAdjacentHTML("afterbegin", playerHead());
+  const orp = document.getElementById("open-report"); if (orp) orp.onclick = () => openReport(P);
   $app.querySelectorAll("[data-pt]").forEach(b => b.onclick = () => { ptab = b.dataset.pt; render(); window.scrollTo(0, 0); });
 }
 function renderAbout(P) {
@@ -1157,7 +1233,8 @@ function renderSettings() {
   $app.innerHTML = `
     ${accountWin()}
     <div class="win"><div class="win-h">Уведомления и звук</div>
-      <div class="small mb">Система напомнит о квесте утром, днём (если ничего не записано) и вечером (если квест не закрыт), и сообщит о вызове на дуэль.</div>
+      <div class="small mb">Одно напоминание в день в удобное время. Если серия под угрозой — Система предупредит в 21:00. В воскресенье — отчёт недели. Не больше двух уведомлений в день.</div>
+      <label class="f">Время напоминания<select class="in" id="rem-h">${Array.from({ length: 16 }, (_, i) => i + 7).map(h => `<option value="${h}" ${(S.remindHour ?? 19) === h ? "selected" : ""}>${h}:00</option>`).join("")}</select></label>
       <button class="btn block ${pushOn() ? "ghost" : ""}" id="push-btn">${pushOn() ? "Уведомления включены · выключить" : "Включить уведомления"}</button>
       <div class="tiny muted mt" id="push-hint">${!("PushManager" in window) ? "Чтобы получать уведомления на iPhone, открой Ingot с иконки на экране «Домой» (iOS 16.4 или новее)." : ""}</div>
       <div class="row mt"><span class="grow small">Звуки Системы</span><button class="btn sm ${S.sound === false ? "ghost" : ""}" id="snd-btn">${S.sound === false ? "Выкл" : "Вкл"}</button></div>
@@ -1188,6 +1265,7 @@ function renderSettings() {
     <div class="center tiny dim mb"><a href="./privacy.html" target="_blank" rel="noopener" style="color:inherit">Политика приватности</a> · <a href="./terms.html" target="_blank" rel="noopener" style="color:inherit">Условия</a></div>
     <div class="center tiny dim mb">Ingot · v5.0</div>`;
   document.getElementById("push-btn").onclick = togglePush;
+  document.getElementById("rem-h").onchange = e => { S.remindHour = +e.target.value; save(); scheduleSync(500); toast(`Напомню в ${S.remindHour}:00`); };
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
 

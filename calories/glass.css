@@ -397,3 +397,9 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 .sign-btn.hold i{width:100%;transition:width 1.2s linear}
 .sign-btn.hold span,.sign-btn.signed span{color:#2a1604}
 .sign-btn.signed i{width:100%}
+
+/* ---------- отчёт недели ---------- */
+.report-win{border-color:rgba(255,194,74,.5);background:linear-gradient(160deg,rgba(255,194,74,.12),rgba(91,124,255,.08))}
+.rp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.07)}
+.rp-row:first-of-type{border-top:0}.rp-d{min-width:58px;text-align:right;font-size:13px;font-weight:600}
+.good{color:#5fe0a0}
