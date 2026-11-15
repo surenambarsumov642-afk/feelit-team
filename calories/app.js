@@ -328,7 +328,7 @@ function nextSystem() {
   if (S.sound !== false) try { sfx(o.kind || "info", o.rarity); } catch {}
   const rar = o.kind === "achv" && o.rarity ? RARITY[o.rarity] : null;
   const big = o.kind === "levelup" || o.kind === "rank" || (rar && o.rarity >= 3);
-  const col = o.kind === "rank" ? "#ffc24a" : rar ? rar.c : o.kind === "penalty" ? "#ff4d6d" : "#5ff0ff";
+  const col = o.kind === "rank" ? "#ffc24a" : rar ? rar.c : o.kind === "penalty" ? "#ff4d6d" : "#7f9cff";
   const bg = document.createElement("div");
   bg.className = `sys-bg fx-${o.kind || "info"}${big ? " big" : ""}`;
   bg.style.setProperty("--fx", col);
@@ -339,7 +339,7 @@ function nextSystem() {
     <div class="sys ${o.kind || ""} ${rar ? "rar-" + rar.id : ""}">
     <div class="tag">${esc(o.tag || "СИСТЕМА")}${rar ? ` · ${rar.n.toUpperCase()}` : ""}</div>
     ${o.icon ? `<div class="sys-ic">${esc(o.icon)}</div>` : ""}
-    <div class="head">${esc(o.head)}</div>
+    <div class="head">${esc(o.head)}</div>${o.sub ? `<div class="sys-sub">${esc(o.sub)}</div>` : ""}
     ${o.body ? `<div class="body">${o.body.split("\n\n").map((p, i) => `<p style="animation-delay:${0.3 + i * 0.3}s">${esc(p)}</p>`).join("")}</div>` : ""}
     <button class="btn ${o.kind === "achv" ? "violet" : o.kind === "penalty" ? "danger" : ""}">${esc(o.btn || "Принять")}</button>
   </div>`;
@@ -377,7 +377,7 @@ function checkEvents(P) {
   seen.penalties = seen.penalties.filter(d => d >= addDays(td, -10));
   if (P.level > seen.level) {
     const oldRank = seen.rank || "E";
-    system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `LV. ${P.level}`,
+    system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `${P.level}`, sub: `LV ${seen.level} → LV ${P.level}`,
       body: phrase("levelup") + "\n\nНовые требования Системы. Новая сила." });
     postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга ${P.rank}` : `достиг ${P.level} уровня`);
     seen.level = P.level; seen.rank = P.rank; changed = true;
@@ -420,15 +420,21 @@ function toast(msg, err) {
 /* ============================ навигация ============================ */
 let tab = "status";
 let diaryDate = today();
+const svgI = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 const ICONS = {
-  status: '<svg viewBox="0 0 24 24"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>',
-  diary: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
-  skills: '<svg viewBox="0 0 24 24"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2 8 12.7 4 8.8 9.5 8z"/><path d="M12 21v-3"/></svg>',
-  player: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/><path d="M16 4l2-2M8 4L6 2"/></svg>',
-  hunter: '<svg viewBox="0 0 24 24"><path d="M14.5 3.5l6 6L9 21l-6-6z"/><path d="M3 21l3-3M13 5l6 6"/></svg>',
-  settings: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
-  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
-  rating: '<svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0z"/><path d="M7 6H4a3 3 0 003 4M17 6h3a3 3 0 01-3 4"/></svg>',
+  status: svgI('<path d="M12 2.8 19.6 7.2v9.6L12 21.2 4.4 16.8V7.2Z"/><path d="M12 8.2 15.3 12 12 15.8 8.7 12Z"/>'),
+  diary: svgI('<rect x="5" y="3.5" width="14" height="17" rx="3.2"/><path d="M8.8 8.5h6.4M8.8 12h6.4M8.8 15.5h3.8"/>'),
+  skills: svgI('<path d="M12 3.2c.6 4.4 2.4 6.2 6.8 6.8-4.4.6-6.2 2.4-6.8 6.8-.6-4.4-2.4-6.2-6.8-6.8 4.4-.6 6.2-2.4 6.8-6.8Z"/><path d="M18.4 15.6c.25 1.6.9 2.25 2.5 2.5-1.6.25-2.25.9-2.5 2.5-.25-1.6-.9-2.25-2.5-2.5 1.6-.25 2.25-.9 2.5-2.5Z"/>'),
+  rating: svgI('<path d="M4 20.2V13.6h4.6v6.6M8.6 20.2V8.4h6.8v11.8M15.4 20.2v-9h4.6v9M3 20.2h18"/>'),
+  player: svgI('<circle cx="12" cy="8.2" r="3.8"/><path d="M4.6 20.4c.9-3.9 3.8-6 7.4-6s6.5 2.1 7.4 6"/>'),
+  hunter: svgI('<path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 9 15 12 12 15 9 12Z"/>'),
+  settings: svgI('<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>'),
+  plus: svgI('<path d="M12 5v14M5 12h14"/>'),
+  camera: svgI('<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5Z"/><circle cx="12" cy="12.4" r="3.4"/>'),
+  pencil: svgI('<path d="M4.5 19.5 5.4 15.6 15.6 5.4a2 2 0 0 1 2.9 0l.1.1a2 2 0 0 1 0 2.9L8.4 18.6Z"/><path d="M13.8 7.2l3 3"/>'),
+  barcode: svgI('<path d="M4 7V5.5A1.5 1.5 0 0 1 5.5 4H7M17 4h1.5A1.5 1.5 0 0 1 20 5.5V7M20 17v1.5a1.5 1.5 0 0 1-1.5 1.5H17M7 20H5.5A1.5 1.5 0 0 1 4 18.5V17"/><path d="M8 8v8M11 8v8M13.5 8v8M16 8v8"/>'),
+  swords: svgI('<path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/><path d="M9.5 6.5 13 3h3v3l-3.5 3.5M5 14l-1 1 4 4 1-1"/>'),
+  flame: svgI('<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.4-5.4 3.6-8.3.5 2 1.6 3 2.8 3.4C12 6.8 13.3 4.4 15.6 3c-.5 3.2 2.9 5.7 2.9 10.4 0 4.6-2.7 7.6-6.5 7.6Z"/>'),
 };
 function renderTabbar() {
   let bar = document.querySelector(".tabbar");
@@ -441,8 +447,15 @@ function renderTabbar() {
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
 }
 
+const BG = { status: "status", diary: "nebula", skills: "skill", rating: "rating", player: "profile", hunter: "profile", settings: "profile" };
+function setBg(name) {
+  const el = document.getElementById("bgart"); if (!el) return;
+  const url = `url("art/${name}.jpg")`;
+  if (el.dataset.bg !== name) { el.dataset.bg = name; el.style.backgroundImage = url; }
+}
 function render() {
-  if (!S.profile) { renderOnboarding(); renderTabbar(); return; }
+  if (!S.profile) { setBg("awaken"); renderOnboarding(); renderTabbar(); return; }
+  setBg(BG[tab] || "nebula");
   const P = computeProgress();
   if (tab === "status") renderStatus(P);
   else if (tab === "diary") renderDiary(P);
@@ -458,11 +471,44 @@ function render() {
 }
 
 /* ============================ общие куски ============================ */
+const fmtN = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u2009");
+/** Верх «Статуса»: слово Системы, сцена с охотником (фон), имя, уровень, ранг, титул, опыт. */
+function statusTop(P) {
+  const t = titleById(S.title), td = today(), shame = shameTitle();
+  const rar = t && t.r ? RARITY[t.r] : null;
+  return `<div class="st-top">
+    <div class="daily-word"><span class="tag-sys">Слово Системы</span><div>«${esc(dailyPhrase(td))}»</div></div>
+    <div class="st-hero" data-hunter></div>
+    <div class="st-name" data-hunter><span class="n">${esc(S.profile.name)}</span><span class="lv"><small>LV</small>${P.level}</span></div>
+    <div class="st-chips" data-hunter><span class="chip-g"><span class="rk">${P.rank}</span>${esc(RANK_NAMES[P.rank])}</span>
+      ${shame ? `<span class="chip-g" style="color:#ff9aaa"><span class="dm" style="background:#ff4d6d"></span>«${esc(shame)}»</span>` :
+        t ? `<span class="chip-g ${rar && rar.id === "legend" ? "gold" : ""}"><span class="dm" ${rar ? `style="background:${rar.c}"` : ""}></span>«${esc(t.n)}»</span>` : ""}</div>
+    <div class="st-xp"><div class="bar"><i style="width:${(P.into / P.need * 100).toFixed(1)}%"></i></div><span><b>${fmtN(P.into)}</b> / ${fmtN(P.need)} XP</span></div>
+  </div>`;
+}
+const RANK_ORDER_ALL = ["E", "D", "C", "B", "A", "S", "N"];
+/** Эмблема ранга: шестигранник с буквой и кольцо рангов E…N с прогрессом до следующего. */
+function rankEmblem(P) {
+  const i = RANK_ORDER_ALL.indexOf(P.rank), R = 70, cx = 84, cy = 84;
+  const pt = k => { const a = -Math.PI / 2 + k / 7 * Math.PI * 2; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
+  const nextLv = [10, 20, 35, 50, 70, 85, 999][i] || 999, prevLv = [0, 10, 20, 35, 50, 70, 85][i] || 0;
+  const frac = Math.max(0, Math.min(1, (P.level - prevLv) / Math.max(1, nextLv - prevLv)));
+  const a0 = -Math.PI / 2 + i / 7 * Math.PI * 2, a1 = a0 + frac / 7 * Math.PI * 2;
+  const arc = `M${cx + R * Math.cos(a0)} ${cy + R * Math.sin(a0)} A${R} ${R} 0 0 1 ${cx + R * Math.cos(a1)} ${cy + R * Math.sin(a1)}`;
+  const hex = [0, 1, 2, 3, 4, 5].map(k => { const a = -Math.PI / 2 + k * Math.PI / 3; return `${cx + 38 * Math.cos(a)},${cy + 38 * Math.sin(a)}`; }).join(" ");
+  return `<svg class="emblem" viewBox="0 0 168 168"><defs><linearGradient id="emg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6f8cff" stop-opacity=".55"/><stop offset="1" stop-color="#2a2f7a" stop-opacity=".55"/></linearGradient></defs>
+    <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1.5"/>
+    <path d="${arc}" fill="none" stroke="#9fc0ff" stroke-width="2.5" stroke-linecap="round" style="filter:drop-shadow(0 0 5px #7f9cff)"/>
+    ${RANK_ORDER_ALL.map((r, k) => { const [x, y] = pt(k); return `<circle cx="${x}" cy="${y}" r="9" fill="${k === i ? "#5b7cff" : "rgba(10,12,30,.9)"}" stroke="${k <= i ? "#9fc0ff" : "rgba(255,255,255,.2)"}"/><text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9.5" font-weight="600" fill="${k <= i ? "#fff" : "rgba(255,255,255,.45)"}">${r}</text>`; }).join("")}
+    <polygon points="${hex}" fill="url(#emg)" stroke="rgba(190,205,255,.75)" stroke-width="1.2" style="filter:drop-shadow(0 0 14px rgba(110,140,255,.7))"/>
+    <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="44" font-weight="200" fill="#fff">${P.rank}</text></svg>
+    <div class="emb-n">${i >= 6 ? "вершина" : frac >= 1 ? `экзамен на ${RANK_ORDER_ALL[i + 1]}` : `${Math.round(frac * 100)}% до ${RANK_ORDER_ALL[i + 1]}`}</div>`;
+}
 function hunterCard(P, full) {
   const t = titleById(S.title);
   return `<div class="win" ${full ? "" : 'data-hunter style="cursor:pointer"'}>${full ? "" : '<span class="hunter-more">профиль ›</span>'}
     <div class="hunter">
-      <div class="rank-badge rank-${P.rank}"><span>${P.rank}</span></div>
+      ${full ? `<div class="emb-w">${rankEmblem(P)}</div>` : `<div class="rank-badge rank-${P.rank}"><span>${P.rank}</span></div>`}
       <div class="grow">
         <div class="name">${esc(S.profile.name)}</div>
         <div class="title">${shameTitle() ? '<span class="bad">«Беглец»</span>' : t ? "«" + esc(t.n) + "»" : esc(RANK_NAMES[P.rank])}</div>
@@ -484,7 +530,7 @@ function ring(eaten, goal) {
   const over = eaten > goal * 1.05;
   return `<div class="ring ${over ? "over" : ""}">
     <svg viewBox="0 0 150 150"><defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5ff0ff"/><stop offset="1" stop-color="#3a7bff"/></linearGradient></defs>
+      <stop offset="0" stop-color="#b9cdff"/><stop offset=".5" stop-color="#5b7cff"/><stop offset="1" stop-color="#9a6bff"/></linearGradient></defs>
       <circle class="c-bg" cx="75" cy="75" r="${R}"/>
       <circle class="c-fg" cx="75" cy="75" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/></svg>
     <div class="mid"><div class="big">${over ? "+" + r0(eaten - goal) : r0(Math.max(0, goal - eaten))}</div>
@@ -517,32 +563,24 @@ function renderStatus(P) {
   const t = targets(), td = today(), d = P.days[td], s = d.s;
   const y = P.days[addDays(td, -1)];
   $app.innerHTML = `
-    <div class="screen-title"><h1>Статус</h1><span class="sub">${humanDate(td)}</span></div>
-    ${hunterCard(P)}
-    <div class="daily-word"><span class="tag-sys">СЛОВО СИСТЕМЫ</span><div>${esc(dailyPhrase(td))}</div></div>
+    ${statusTop(P)}
     ${(() => { const due = worldDue(); return due.length ? `<div class="win" style="border-color:rgba(255,194,74,.6)" data-wdue="${due[0].chain}"><div class="win-h" style="color:#ffd77a">🌍 Выход в мир<span class="right">›</span></div>
       <div class="small">Сегодня написать: ${due.slice(0, 3).map(x => esc(x.c.name)).join(", ")}${due.length > 3 ? ` и ещё ${due.length - 3}` : ""}</div></div>` : ""; })()}
     ${statusCard()}
-    <div class="win">
-      <div class="win-h">Энергия дня<span class="right">норма ${t.kcal} ккал</span></div>
-      <div class="ring-wrap">${ring(s.kcal, t.kcal)}
-        <div class="kcal-side">
-          <div class="kv"><span class="muted">Съедено</span><b>${r0(s.kcal)}</b></div>
-          <div class="kv"><span class="muted">Норма</span><b>${t.kcal}</b></div>
-          <div class="kv"><span class="muted">Записей</span><b>${s.count}</b></div>
-          <div class="kv"><span class="muted">XP за день</span><b class="${d.xp < 0 ? "bad" : ""}">${d.xp >= 0 ? "+" : ""}${d.xp}</b></div>
-        </div>
-      </div>
-      <div class="macros">${macroBar("Белки", s.p, t.p)}${macroBar("Жиры", s.f, t.f)}${macroBar("Углеводы", s.c, t.c)}</div>
+    <div class="win" data-godiary style="cursor:pointer">
+      <div class="win-h">Питание · сегодня<span class="right">XP за день: <b class="${d.xp < 0 ? "bad" : ""}">${d.xp >= 0 ? "+" : ""}${d.xp}</b></span></div>
+      <div class="nut"><div><div class="big">${fmtN(r0(s.kcal))}<small>из ${fmtN(t.kcal)} ккал</small></div>
+        <div class="mac">${[["Б", s.p, t.p], ["Ж", s.f, t.f], ["У", s.c, t.c]].map(([n, v, g]) => `<div>${n} <b>${r0(v)}</b> г<i style="--w:${clamp(v / (g || 1) * 100, 0, 100)}%"></i></div>`).join("")}</div></div>
+        ${ring(s.kcal, t.kcal)}</div>
     </div>
     ${questsWin(P, td)}
     ${examWin(P)}
     ${API_URL && S.player ? gatesWin(P) : ""}
-    <div class="grid2">
-      <button class="btn block" data-act="photo">📷 Фото еды</button>
-      <button class="btn block violet" data-act="manual">✎ По названию</button>
+    <div class="qbtns">
+      <button class="btn block" data-act="photo">${ICONS.camera.replace("<svg", '<svg width="20" height="20" style="vertical-align:-4px;margin-right:6px"')}Фото еды</button>
+      <button class="btn block" data-act="manual">${ICONS.pencil.replace("<svg", '<svg width="20" height="20" style="vertical-align:-4px;margin-right:6px"')}По названию</button>
     </div>
-    <button class="btn block mt" data-act="workout">⚔ Тренировка Системы</button>
+    <button class="btn block violet" data-act="workout">${ICONS.swords.replace("<svg", '<svg width="20" height="20" style="vertical-align:-4px;margin-right:6px"')}Тренировка Системы</button>
     ${planWin(t)}
     ${y && y.s.count ? `<div class="win violet mt"><div class="win-h">Отчёт за вчера</div>
       <div class="small">${r0(y.s.kcal)} ккал · Б ${r0(y.s.p)} · Ж ${r0(y.s.f)} · У ${r0(y.s.c)}</div>
@@ -553,7 +591,8 @@ function renderStatus(P) {
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
-  $app.querySelector("[data-hunter]").onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); };
+  $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
+  const gd = $app.querySelector("[data-godiary]"); if (gd) gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); };
   bindQuests(P);
   if (API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
@@ -573,43 +612,51 @@ function planWin(t) {
 
 /* ============================ экран: Дневник ============================ */
 function renderDiary(P) {
-  const t = targets(), d = diaryDate;
+  const t = targets(), d = diaryDate, td = today();
   const list = S.entries.filter(e => e.date === d).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   const s = daySums(d);
+  // неделя (пн–вс) вокруг выбранного дня
+  const wd = (parseD(d).getDay() + 6) % 7, mon = addDays(d, -wd);
+  const WDN = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+  const week = WDN.map((n, i) => { const dd = addDays(mon, i), has = S.entries.some(e => e.date === dd);
+    return `<button class="wk-d ${dd === d ? "on" : ""} ${dd > td ? "fut" : ""}" data-day="${dd}"><span>${n}</span><b>${parseD(dd).getDate()}</b><i class="${has ? "has" : ""}"></i></button>`; }).join("");
   const meals = MEALS.map(m => {
     const items = list.filter(e => e.meal === m.id);
-    const k = items.reduce((a, e) => a + e.kcal, 0);
-    return `<div class="win"><div class="meal-h"><span class="n">${m.name}</span><span class="k">${r0(k)} ккал</span></div>
-      ${items.length ? items.map(entryRow).join("") : `<div class="empty">Пусто</div>`}
-      <button class="btn ghost sm mt" data-addmeal="${m.id}">+ Добавить</button></div>`;
+    const k = items.reduce((a, e) => a + e.kcal, 0), tm = items.length ? items[0].time : "";
+    return `<div class="meal"><div class="meal-h"><span class="n">${m.name}${tm ? ` <span class="tm">${tm}</span>` : ""}</span>
+        ${items.length ? `<span class="k">${r0(k)} ккал</span>` : `<button class="chip-b sm-add" data-addmeal="${m.id}">+ Добавить</button>`}</div>
+      ${items.map(entryRow).join("")}
+    </div>`;
   }).join("");
+  const left = t.kcal - s.kcal, mb = (n, v, g) => `<div><div class="tiny muted">${n} <b>${r0(v)}</b> / ${r0(g)} г</div><div class="bar"><i style="width:${clamp(v / (g || 1) * 100, 0, 100)}%"></i></div></div>`;
   $app.innerHTML = `
-    <div class="screen-title"><h1>Дневник</h1></div>
-    <div class="datebar">
-      <button class="icon-btn" data-dd="-1">‹</button>
-      <div class="d">${humanDate(d)}</div>
-      <button class="icon-btn" data-dd="1" ${d >= today() ? "disabled style='opacity:.3'" : ""}>›</button>
-    </div>
+    <div class="dhead"><button class="icon-btn" data-dd="-1">${svgI('<path d="M14.6 5.4 8 12l6.6 6.6"/>')}</button>
+      <div class="grow center"><div class="tag-sys">${d === td ? "СЕГОДНЯ" : d === addDays(td, -1) ? "ВЧЕРА" : "ДНЕВНИК"}</div><div class="dt">${dayTitle(d)}</div></div>
+      <button class="icon-btn" data-dd="1" ${d >= td ? "disabled style='opacity:.3'" : ""}>${svgI('<path d="M9.4 5.4 16 12l-6.6 6.6"/>')}</button></div>
+    <div class="win wk">${week}</div>
     <div class="win">
-      <div class="row"><div class="grow"><div class="sys-font" style="font-size:22px;color:#fff">${r0(s.kcal)} <span class="muted small">/ ${t.kcal} ккал</span></div></div>
-        <div class="small muted">Б ${r0(s.p)} · Ж ${r0(s.f)} · У ${r0(s.c)}</div></div>
-      <div class="bar thick mt ${s.kcal > t.kcal * 1.05 ? "over" : ""}"><i style="width:${clamp(s.kcal / t.kcal * 100, 0, 100)}%"></i></div>
+      <div class="row" style="align-items:flex-end"><div class="grow"><span class="sys-font" style="font-size:40px;color:#fff">${fmtN(r0(s.kcal))}</span> <span class="muted small">/ ${fmtN(t.kcal)} ккал</span></div>
+        <div class="center"><div class="sys-font" style="font-size:26px;color:${left < 0 ? "var(--bad)" : "#fff"}">${fmtN(Math.abs(r0(left)))}</div><div class="tiny muted">${left < 0 ? "сверх" : "осталось"}</div></div></div>
+      <div class="grid3 mt" style="gap:12px">${mb("Б", s.p, t.p)}${mb("Ж", s.f, t.f)}${mb("У", s.c, t.c)}</div>
     </div>
-    ${d !== today() && P.days[d] ? questsWin(P, d) : ""}
-    ${meals}`;
+    ${d !== td && P.days[d] ? questsWin(P, d) : ""}
+    <div class="win meals">${meals}</div>`;
   $app.querySelectorAll("[data-dd]").forEach(b => b.onclick = () => {
-    const nd = addDays(diaryDate, +b.dataset.dd); if (nd > today()) return; diaryDate = nd; render();
+    const nd = addDays(diaryDate, +b.dataset.dd); if (nd > td) return; diaryDate = nd; render();
   });
+  $app.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { if (b.dataset.day > td) return; diaryDate = b.dataset.day; render(); });
   $app.querySelectorAll("[data-addmeal]").forEach(b => b.onclick = () => openAddSheet(diaryDate, b.dataset.addmeal));
   $app.querySelectorAll("[data-entry]").forEach(b => b.onclick = () => openEdit(b.dataset.entry));
   bindQuests(P);
 }
+const dayTitle = d => { const x = parseD(d), w = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"][x.getDay()];
+  return `${w}, ${x.getDate()} ${["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"][x.getMonth()]}`; };
 function entryRow(e) {
   return `<div class="entry" data-entry="${e.id}">
-    <div class="th" ${e.thumb ? `style="background-image:url(${e.thumb})"` : ""}>${e.thumb ? "" : "✎"}</div>
-    <div class="grow"><div class="nm">${esc(e.name)}</div>
+    <div class="th" ${e.thumb ? `style="background-image:url(${e.thumb})"` : ""}>${e.thumb ? "" : e.source === "barcode" ? ICONS.barcode : ICONS.pencil}</div>
+    <div class="grow"><div class="nm">${esc(e.name)} ${e.source === "photo" ? '<span class="src">ИИ</span>' : e.source === "barcode" ? '<span class="src">▦</span>' : ""}</div>
       <div class="mc">${e.grams ? r0(e.grams) + " г · " : ""}Б ${r1(e.p)} · Ж ${r1(e.f)} · У ${r1(e.c)}</div></div>
-    <div class="kc">${r0(e.kcal)}<small>ккал</small></div></div>`;
+    <div class="kc">${r0(e.kcal)}</div></div>`;
 }
 
 /* ============================ экран: Охотник ============================ */
@@ -637,7 +684,8 @@ function renderHunter(P) {
     ${finishedSkills().length ? `<div class="win violet"><div class="win-h">Навыки</div>${finishedSkills().map(sk => `<div class="kv"><span>${esc(sk.plan.skill_name)} · Ур. ${sk.level}</span><b>${masteryRank(sk.mastery)} · ${sk.mastery}%</b></div>`).join("")}</div>` : ""}
     ${weightWin(t)}
     <div class="win"><div class="win-h">Характеристики</div>
-      <div class="stats">${STATS.map(([k, n, d]) => `<div class="stat"><div class="s-h"><span class="s-n">${n}</span><span class="s-v">${P.stats[k]}</span></div><div class="s-d">+1 за ${d}</div></div>`).join("")}</div>
+      <div class="stat-rows">${(() => { const mx = Math.max(20, ...STATS.map(([k]) => P.stats[k])); return STATS.map(([k, n, d]) => `<div class="srow"><div class="grow"><div class="sn">${n}</div><div class="sd">+1 за ${d}</div></div>
+        <div class="sb"><i style="width:${(P.stats[k] / mx * 100).toFixed(0)}%"></i></div><div class="sv">${P.stats[k]}</div></div>`).join(""); })()}</div>
     </div>
     <div class="win"><div class="win-h">Последние 14 дней<span class="right">ккал</span></div>
       <div class="chart"><div class="plot"><div class="goal" style="bottom:${goalPos}%"><span>${t.kcal}</span></div>${bars}</div><div class="labels">${labels}</div></div>
@@ -1234,13 +1282,14 @@ function importData(ev) {
 /* ============================ онбординг ============================ */
 function renderOnboarding() {
   $app.innerHTML = `<div class="onb">
-    <div class="logo">ARISE</div>
-    <div class="tagline">СИСТЕМА УЧЁТА ЭНЕРГИИ</div>
+    <div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
+    <div class="tagline">СИСТЕМА · НОВЫЙ ИГРОК</div>
+    <div class="logo">Пробуждение</div>
+    <div class="onb-sub">Система выбрала тебя. Назови себя, Игрок.</div>
     <div class="win">
-      <div class="win-h">Уведомление</div>
-      <div class="small mb">Вы получили право стать <b style="color:var(--blue2)">Игроком</b>. Система составит план питания под вашу цель, будет выдавать ежедневные квесты и повышать ваш уровень.<br><span class="muted">Заполните параметры — это займёт минуту.</span></div>
+      <div class="small mb muted">Система составит план питания под твою цель, будет выдавать ежедневные квесты и повышать твой уровень.</div>
       ${profileFields(S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null, !S.player)}
-      <button class="btn block mt" id="accept" style="margin-top:16px">Принять</button>
+      <button class="btn-epic block mt" id="accept" style="margin-top:16px;width:100%">Пробудиться</button>
       ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}
     </div></div>`;
   const acc = document.getElementById("accept");
@@ -1299,9 +1348,9 @@ function openAddSheet(date = (tab === "diary" ? diaryDate : today()), meal) {
   sheet(`<h2>Добавить еду</h2>
     <div class="tiny muted mb">${humanDate(date)}${meal ? " · " + mealName(meal) : ""}</div>
     <div class="add-opts">
-      <button class="add-opt" data-o="photo"><span class="i">📷</span><b>Фото</b><span>Система распознает блюдо и КБЖУ</span></button>
-      <button class="add-opt" data-o="manual"><span class="i">✎</span><b>По названию</b><span>Название и граммы — КБЖУ посчитается</span></button>
-      <button class="add-opt wide" data-o="scan"><span class="i">▦</span><div><b>Штрихкод</b><span>Наведи камеру на упаковку — КБЖУ из общей базы</span></div></button>
+      <button class="add-opt" data-o="photo"><span class="i">${ICONS.camera}</span><b>Фото</b><span>Система распознает блюдо и КБЖУ</span></button>
+      <button class="add-opt" data-o="manual"><span class="i">${ICONS.pencil}</span><b>По названию</b><span>Название и граммы — КБЖУ посчитается</span></button>
+      <button class="add-opt wide" data-o="scan"><span class="i">${ICONS.barcode}</span><div><b>Штрихкод</b><span>Наведи камеру на упаковку — КБЖУ из общей базы</span></div></button>
     </div>
     ${recentList()}`, (el, close) => {
     el.querySelector("[data-o=photo]").onclick = () => { close(); startPhoto(date, meal); };
