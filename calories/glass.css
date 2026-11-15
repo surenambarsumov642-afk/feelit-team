@@ -373,3 +373,33 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 .rank-badge .rk-glyph{filter:drop-shadow(0 0 12px var(--rk2))}
 .emb-rank{font-family:var(--display);font-weight:600;font-size:13px;letter-spacing:2px;white-space:nowrap;text-align:center;margin-top:6px;text-shadow:0 0 14px currentColor}
 .rank-N.chip-g.rkc{background:linear-gradient(90deg,rgba(255,215,120,.18),rgba(154,107,255,.18))}
+
+/* ---------- экран «Сегодня» ---------- */
+.today-win .today-bar{margin:2px 0 10px}
+.today-win .quest .box{font-size:13px;color:var(--t2)}
+.today-win .quest.done .box{color:#fff}
+.today-win .quest.cta{background:linear-gradient(135deg,rgba(91,124,255,.22),rgba(154,107,255,.16));border-radius:14px;padding-left:8px;padding-right:8px}
+
+/* ---------- онбординг: шаги, выбор, контракт ---------- */
+.onb-steps{display:flex;gap:6px;justify-content:center;margin:4px 0 14px}
+.onb-steps i{width:22px;height:4px;border-radius:4px;background:rgba(255,255,255,.18)}
+.onb-steps i.on{background:linear-gradient(90deg,#7f9cff,#b48cff)!important;box-shadow:0 0 8px rgba(140,160,255,.7)}
+.onb .logo{line-height:1.08}
+.onb-chips{display:flex;flex-wrap:wrap;gap:8px}
+.onb-chips .chip-b{padding:10px 14px;font-size:15px}
+.chip-b.on{background:linear-gradient(135deg,rgba(91,124,255,.55),rgba(154,107,255,.45));color:#fff;box-shadow:inset 0 0 0 1px rgba(190,205,255,.55)}
+.contract{border-color:rgba(255,194,74,.45)}
+.contract b{color:#ffd98a}
+.sign-btn{position:relative;overflow:hidden;width:100%;height:58px;border:0;border-radius:20px;font:inherit;font-weight:700;font-size:16px;color:#2a1604;cursor:pointer;
+  background:linear-gradient(180deg,rgba(255,227,160,.25),rgba(255,194,74,.18));box-shadow:inset 0 0 0 1px rgba(255,210,120,.6);-webkit-user-select:none;user-select:none;touch-action:none}
+.sign-btn span{position:relative;color:#ffe3a0}
+.sign-btn i{position:absolute;inset:0;width:0;background:linear-gradient(180deg,#ffe3a0,#ffc24a 55%,#e9a020);transition:width 0s}
+.sign-btn.hold i{width:100%;transition:width 1.2s linear}
+.sign-btn.hold span,.sign-btn.signed span{color:#2a1604}
+.sign-btn.signed i{width:100%}
+
+/* ---------- отчёт недели ---------- */
+.report-win{border-color:rgba(255,194,74,.5);background:linear-gradient(160deg,rgba(255,194,74,.12),rgba(91,124,255,.08))}
+.rp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.07)}
+.rp-row:first-of-type{border-top:0}.rp-d{min-width:58px;text-align:right;font-size:13px;font-weight:600}
+.good{color:#5fe0a0}

@@ -1,7 +1,7 @@
 // Ingot — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
-import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, openWorldView } from "./skills.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, skillToday, openWorldView, startSkillWith, resumeInterview, POPULAR } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE, RANKS, RANK_LV, rankName, rankMono, rankLabel, rankGlyph } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
@@ -109,7 +109,7 @@ async function syncNow() {
     await api("sync", {
       token: S.player.token,
       stats: { level: P.level, rank: P.rank, xp: P.xp, streak: P.streak, best_streak: P.longest, perfect_days: P.perfectDays,
-        workouts: P.workoutDays, skill_state: skillTodayState(), title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today() },
+        workouts: P.workoutDays, skill_state: skillTodayState(), title: shameTitle() || (t ? t.n : null), today_quests: d ? d.doneCount : 0, today_total: QUESTS.length, stats_date: today(), remind_hour: S.remindHour ?? 19 },
       save: backup,
       days: Object.entries(P.days).slice(-400).map(([day, x]) => ({ day, xp: x.xp, norm: !!x.q.norm.done, workout: !!x.q.workout.done, quests: x.doneCount })),
     });
@@ -195,7 +195,8 @@ function workoutDone(d, lvl) {
 function workoutVerified(d, lvl) { const v = vDay(d); return EX.filter(ex => CAM.includes(ex.id)).every(ex => (v[ex.id] || 0) >= exTarget(ex, lvl, d)); }
 
 /* ============================ прогресс «Системы» ============================ */
-const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
+const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50 };
+const SHIELD_MAX = 3;
 const QUESTS = [
   { id: "workout", name: "Тренировка Системы", xp: XP.workout },
   { id: "log", name: "Вести учёт питания", xp: XP.log },
@@ -234,7 +235,7 @@ function computeProgress() {
   const byDate = {};
   for (const e of S.entries) (byDate[e.date] ||= []).push(e);
   let xp = 0, cur = 0, longest = 0, proteinDays = 0, normDays = 0, perfectDays = 0, photos = 0, entries = S.entries.length, workoutDays = 0;
-  let lvl = 1, lvlRest = 0;
+  let lvl = 1, lvlRest = 0, shields = 1, run = 0;
   const skXP = skillXpByDate();
   for (const a of S.adj || []) skXP[a.date] = (skXP[a.date] || 0) + a.xp;
   const days = {};
@@ -255,17 +256,16 @@ function computeProgress() {
     if (q.protein.done) proteinDays++;
     if (q.workout.done) workoutDays++;
     if (q.norm.done) normDays++;
-    let penalty = null;
-    if (closed && d >= start) {
-      if (s.count === 0 && !q.workout.done) { penalty = { xp: XP.penMiss, why: "День пропущен — ни одной записи" }; }
-      else if (s.kcal > t.kcal * 1.15) { penalty = { xp: XP.penOver, why: `Превышение нормы: ${r0(s.kcal)} из ${t.kcal} ккал` }; }
-    }
-    if (penalty) dx += penalty.xp;
+    // Штрафов XP больше нет: пропуск не отнимает опыт, а серию спасает щит (см. ниже).
+    const penalty = null;
     xp = Math.max(0, xp + dx);
     lvl = 1; lvlRest = xp; while (lvlRest >= xpNeed(lvl)) { lvlRest -= xpNeed(lvl); lvl++; }
     const active = s.count > 0 || q.workout.done || (skXP[d] || 0) > 0;
-    if (active) { cur++; longest = Math.max(longest, cur); } else if (closed) cur = 0;
-    days[d] = { s, q, xp: dx, penalty, all, lvl: dayLvl, doneCount: doneIds.length };
+    // Щиты серии: 1 в подарок, +1 за каждые 7 активных дней подряд (максимум 3). Пропущенный день съедает щит, серия не обнуляется.
+    let shielded = false;
+    if (active) { cur++; run++; longest = Math.max(longest, cur); if (run % 7 === 0) shields = Math.min(SHIELD_MAX, shields + 1); }
+    else if (closed) { if (shields > 0 && cur > 0) { shields--; shielded = true; } else { cur = 0; } run = 0; }
+    days[d] = { s, q, xp: dx, penalty, all, lvl: dayLvl, doneCount: doneIds.length, shielded };
   }
   let level = 1, rest = xp;
   while (rest >= xpNeed(level)) { rest -= xpNeed(level); level++; }
@@ -277,7 +277,7 @@ function computeProgress() {
     dis: 10 + normDays,
     per: 10 + Math.floor(photos / 3),
   };
-  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays, mapped: S.mapped || 0 };
+  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, shields, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays, mapped: S.mapped || 0 };
 }
 
 /* ============================ достижения ============================ */
@@ -371,9 +371,9 @@ function checkEvents(P) {
   }
   for (let i = 1; i <= 3; i++) {
     const d = addDays(td, -i), dd = P.days[d];
-    if (dd && dd.penalty && !seen.penalties.includes(d)) {
+    if (dd && dd.shielded && !seen.penalties.includes(d)) {
       seen.penalties.push(d); changed = true;
-      system({ kind: "penalty", tag: "ШТРАФ", head: humanDate(d), body: `${dd.penalty.why}\n${dd.penalty.xp} XP\n\n${phrase("penalty")}`, btn: "Понятно" });
+      system({ kind: "info", tag: "ЩИТ СРАБОТАЛ", head: "🛡 Серия спасена", body: `${humanDate(d)} ты пропустил, но щит удержал серию: ${P.streak} дн.\nОсталось щитов: ${P.shields}.\n\nЩиты копятся за каждые 7 дней подряд. Не пропускай два дня — щит может закончиться.`, btn: "Продолжить" });
     }
   }
   seen.penalties = seen.penalties.filter(d => d >= addDays(td, -10));
@@ -407,7 +407,7 @@ function syncSeenSilently() {
   const P = computeProgress();
   S.seen.level = P.level;
   S.seen.ach = ACH.filter(a => a.ok(P)).map(a => a.id);
-  S.seen.penalties = Object.keys(P.days).filter(d => P.days[d].penalty);
+  S.seen.penalties = Object.keys(P.days).filter(d => P.days[d].shielded);
   save();
 }
 
@@ -443,7 +443,7 @@ function renderTabbar() {
   if (!S.profile) { bar && bar.remove(); return; }
   if (!bar) { bar = document.createElement("nav"); bar.className = "tabbar"; document.body.appendChild(bar); }
   const b = (id, label) => `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
-  bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
+  bar.innerHTML = `<div class="in">${b("status", "Сегодня")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
     <button class="tab-add fab" data-act="add" aria-label="Добавить еду">${ICONS.plus}</button>`;
   bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { if (tab !== x.dataset.tab && S.sound !== false) sfx("tab"); tab = x.dataset.tab; render(); window.scrollTo(0, 0); $app.classList.remove("enter"); void $app.offsetWidth; $app.classList.add("enter"); });
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
@@ -526,7 +526,7 @@ function hunterCard(P, full) {
       </div>
     </div>
     ${full ? `<div class="grid3 mt center small">
-      <div><div class="sys-font" style="font-size:18px;color:#fff">${P.streak}</div><div class="muted tiny">серия дней</div></div>
+      <div><div class="sys-font" style="font-size:18px;color:#fff">${P.streak} <span style="font-size:13px;opacity:.8">🛡${P.shields}</span></div><div class="muted tiny">серия · щиты</div></div>
       <div><div class="sys-font" style="font-size:18px;color:#fff">${P.perfectDays}</div><div class="muted tiny">идеальных дней</div></div>
       <div><div class="sys-font" style="font-size:18px;color:#fff">${P.xp}</div><div class="muted tiny">всего XP</div></div>
     </div>` : ""}
@@ -566,22 +566,114 @@ function questsWin(P, date) {
     <div class="tiny muted mb">[Подготовка к укреплению тела]</div>${rows}</div>`;
 }
 
+/** «Сегодня»: до 5 главных дел дня по всем опорам — навык, тело, питание, выход в мир. */
+function todayWin(P) {
+  const td = today(), d = P.days[td], sk = skillToday(), due = worldDue();
+  const rows = [];
+  if (sk.state === "interview") rows.push({ done: false, ic: "✦", t: `Навык «${sk.skill}»: собери план`, p: "5 минут вопросов → личный план на 30 дней", xp: "", attr: "data-skresume", cta: true });
+  else if (sk.skill) rows.push({ done: sk.state === "done" || sk.state === "rest", ic: "✦", t: sk.state === "rest" ? "День отдыха навыка" : `Навык: ${sk.title || "задание дня"}`,
+    p: `${sk.skill}${sk.day && sk.day <= 30 ? ` · день ${sk.day}/30` : ""}`, xp: "+40", attr: "data-skgo" });
+  else rows.push({ done: false, ic: "✦", t: "Выбери навык", p: "ИИ составит личный план на 30 дней", xp: "", attr: "data-skgo", cta: true });
+  const w = d.q.workout;
+  rows.push({ done: w.done, ic: "⚔", t: "Тренировка", p: w.prog, xp: w.done && !w.verified ? "+40" : "+80", attr: `data-workout="${td}"` });
+  rows.push({ done: d.q.log.done, ic: "◎", t: "Записать еду", p: d.q.log.prog, xp: "+" + XP.log, attr: "data-godiary" });
+  rows.push({ done: d.q.norm.done, fail: d.q.norm.over, ic: "◐", t: "Уложиться в норму", p: d.q.norm.prog + (d.q.norm.over ? " · превышено" : ""), xp: "+" + XP.norm, attr: "data-godiary" });
+  if (due.length) rows.push({ done: false, ic: "🌍", t: "Выход в мир", p: `Написать: ${due.slice(0, 2).map(x => x.c.name).join(", ")}${due.length > 2 ? "…" : ""}`, xp: "", attr: `data-wdue="${due[0].chain}"` });
+  const list = rows.slice(0, 5), n = list.filter(r => r.done).length;
+  return `<div class="win today-win"><div class="win-h">Сегодня<span class="right">${n}/${list.length} · 🔥 ${P.streak} · 🛡 ${P.shields}</span></div>
+    <div class="bar today-bar"><i style="width:${(n / list.length * 100).toFixed(0)}%"></i></div>
+    ${list.map(r => `<div class="quest ${r.done ? "done" : r.fail ? "fail" : ""} ${r.cta ? "cta" : ""}" ${r.attr} style="cursor:pointer"><div class="box">${r.done ? "✓" : r.fail ? "✕" : r.ic}</div>
+      <div class="grow"><div class="qt">${esc(r.t)}</div><div class="qp">${esc(r.p)}</div></div><div class="xp">${r.cta ? "›" : r.xp}</div></div>`).join("")}
+    <div class="tiny muted mt">${n === list.length ? "День закрыт. Так и строится сила." : `Всё за день — бонус +${XP.allBonus} XP.`}</div></div>`;
+}
+
+/* ============================ отчёт недели ============================ */
+// «Ты против себя»: эта неделя против прошлой и против себя 30 дней назад. Раз в неделю (вс/пн) — карточка на «Сегодня».
+function weekStats(P, end) {
+  const r = { xp: 0, active: 0, workouts: 0, logged: 0, perfect: 0 };
+  for (let i = 0; i < 7; i++) {
+    const d = P.days[addDays(end, -i)]; if (!d) continue;
+    r.xp += d.xp; if (d.s.count || d.q.workout.done) r.active++; if (d.q.workout.done) r.workouts++; if (d.s.count) r.logged++; if (d.all) r.perfect++;
+  }
+  return r;
+}
+function reportData(P) {
+  const td = today(), cur = weekStats(P, td), prev = weekStats(P, addDays(td, -7));
+  const d30 = addDays(td, -30), then = P.days[d30];
+  const w = (S.weights || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  const wNow = w.length ? w[w.length - 1].kg : null, wThen = (w.filter(x => x.date <= d30).pop() || w[0] || {}).kg ?? null;
+  return { cur, prev, lvlThen: then ? then.lvl : 1, lvlNow: P.level, wNow, wThen, streak: P.streak, rank: rankLabel(P.rank, P.level) };
+}
+const weekKey = () => { const d = parseD(today()); const day = (d.getDay() + 6) % 7; return addDays(today(), -day); };
+function reportWin(P) {
+  const wd = parseD(today()).getDay();
+  if (!(wd === 0 || wd === 1) || S.seen.report === weekKey() || !S.profile || S.profile.createdAt > addDays(today(), -3)) return "";
+  const r = reportData(P), dx = r.cur.xp - r.prev.xp;
+  return `<div class="win report-win" data-report style="cursor:pointer"><div class="win-h">Отчёт Системы · неделя<span class="right">›</span></div>
+    <div class="small"><b>+${fmtN(r.cur.xp)} XP</b> ${dx >= 0 ? `<span class="good">▲ ${fmtN(dx)}</span>` : `<span class="bad">▼ ${fmtN(-dx)}</span>`} к прошлой неделе · активных дней ${r.cur.active}/7</div>
+    <div class="tiny muted mt">Ты против себя 30 дней назад: LV ${r.lvlThen} → LV ${r.lvlNow}</div></div>`;
+}
+const dm = d => parseD(d).toLocaleDateString("ru", { day: "numeric", month: "long" });
+function openReport(P) {
+  S.seen.report = weekKey(); save();
+  const r = reportData(P);
+  const row = (n, a, b, unit = "") => { const d = a - b; return `<div class="rp-row"><span class="grow">${n}</span><b>${fmtN(a)}${unit}</b><span class="rp-d ${d > 0 ? "good" : d < 0 ? "bad" : "muted"}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} ${d ? fmtN(Math.abs(d)) : ""}</span></div>`; };
+  const wtxt = r.wNow != null && r.wThen != null && r.wNow !== r.wThen ? `${r.wThen} → ${r.wNow} кг` : r.wNow != null ? `${r.wNow} кг` : "—";
+  const better = r.cur.xp >= r.prev.xp;
+  sheet(`<div class="tag-sys">ОТЧЁТ СИСТЕМЫ</div><h2 style="margin:6px 0 2px">Неделя ${dm(addDays(today(), -6))} — ${dm(today())}</h2>
+    <div class="small muted mb">${better ? "Ты сильнее, чем неделю назад. Так и строится легенда." : "Неделя была тяжелее. Это нормально — главное, ты здесь."}</div>
+    <div class="win"><div class="win-h">Эта неделя против прошлой</div>
+      ${row("Опыт", r.cur.xp, r.prev.xp, " XP")}${row("Активных дней", r.cur.active, r.prev.active)}${row("Тренировок", r.cur.workouts, r.prev.workouts)}${row("Дней с учётом еды", r.cur.logged, r.prev.logged)}${row("Идеальных дней", r.cur.perfect, r.prev.perfect)}</div>
+    <div class="win violet"><div class="win-h">Ты против себя 30 дней назад</div>
+      <div class="kv"><span class="muted">Уровень</span><b>LV ${r.lvlThen} → LV ${r.lvlNow}</b></div>
+      <div class="kv"><span class="muted">Ранг</span><b>${esc(r.rank)}</b></div>
+      <div class="kv"><span class="muted">Вес</span><b>${wtxt}</b></div>
+      <div class="kv"><span class="muted">Серия</span><b>🔥 ${r.streak} дн.</b></div></div>
+    <button class="btn-epic block mt" id="rp-share" style="width:100%">Поделиться картинкой</button>
+    <div id="rp-img" class="center mt"></div>`, (el) => {
+    el.querySelector("#rp-share").onclick = async () => {
+      const blob = await reportImage(r);
+      const file = new File([blob], "ingot-week.png", { type: "image/png" });
+      try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: "Моя неделя в Ingot" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+      el.querySelector("#rp-img").innerHTML = `<img src="${URL.createObjectURL(blob)}" style="width:100%;border-radius:18px"><div class="tiny muted mt">Зажми картинку, чтобы сохранить</div>`;
+    };
+  });
+}
+function reportImage(r) {
+  const W = 1080, H = 1350, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  const bg = g.createRadialGradient(W / 2, 260, 80, W / 2, 500, 1100); bg.addColorStop(0, "#2b2f86"); bg.addColorStop(.5, "#0f1238"); bg.addColorStop(1, "#04050d");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const font = (w, sz) => `${w} ${sz}px -apple-system, "SF Pro Display", Inter, Segoe UI, sans-serif`;
+  g.textAlign = "center"; g.fillStyle = "#a9b6ff"; g.font = font(700, 30); g.fillText("I N G O T  ·  О Т Ч Ё Т  Н Е Д Е Л И", W / 2, 120);
+  g.fillStyle = "#fff"; g.font = font(300, 84); g.fillText(S.profile.name, W / 2, 250);
+  g.fillStyle = "#ffd36b"; g.font = font(600, 40); g.fillText(r.rank.toUpperCase() + "  ·  LV " + r.lvlNow, W / 2, 320);
+  const gold = g.createLinearGradient(0, 380, 0, 560); gold.addColorStop(0, "#fff3c4"); gold.addColorStop(1, "#ffb43a");
+  g.fillStyle = gold; g.font = font(200, 190); g.fillText("+" + fmtN(r.cur.xp).replace(/ /g, " "), W / 2, 560);
+  g.fillStyle = "#c9cff5"; g.font = font(500, 36); g.fillText("XP за неделю", W / 2, 620);
+  const items = [["🔥", r.streak + " дн.", "серия"], ["⚔", String(r.cur.workouts), "тренировок"], ["✓", r.cur.active + "/7", "активных дней"]];
+  items.forEach(([ic, v, n], i) => { const x = W / 2 + (i - 1) * 320; g.fillStyle = "rgba(255,255,255,.07)"; g.beginPath(); g.roundRect(x - 140, 700, 280, 230, 36); g.fill();
+    g.fillStyle = "#fff"; g.font = font(600, 64); g.fillText(v, x, 820); g.fillStyle = "#9aa3c7"; g.font = font(500, 30); g.fillText(n, x, 880); });
+  g.fillStyle = "#fff"; g.font = font(500, 44); g.fillText(`Месяц назад: LV ${r.lvlThen}  →  сейчас: LV ${r.lvlNow}`, W / 2, 1040);
+  g.fillStyle = "#8f97bd"; g.font = font(500, 32); g.fillText("Переплавь усилия в золото · Ingot", W / 2, 1250);
+  return new Promise(res => c.toBlob(res, "image/png"));
+}
+
 /* ============================ экран: Статус ============================ */
 function renderStatus(P) {
   const t = targets(), td = today(), d = P.days[td], s = d.s;
   const y = P.days[addDays(td, -1)];
   $app.innerHTML = `
     ${statusTop(P)}
-    ${(() => { const due = worldDue(); return due.length ? `<div class="win" style="border-color:rgba(255,194,74,.6)" data-wdue="${due[0].chain}"><div class="win-h" style="color:#ffd77a">🌍 Выход в мир<span class="right">›</span></div>
-      <div class="small">Сегодня написать: ${due.slice(0, 3).map(x => esc(x.c.name)).join(", ")}${due.length > 3 ? ` и ещё ${due.length - 3}` : ""}</div></div>` : ""; })()}
-    ${statusCard()}
+    ${reportWin(P)}
+    ${todayWin(P)}
+    ${skillToday().skill ? statusCard() : ""}
     <div class="win" data-godiary style="cursor:pointer">
       <div class="win-h">Питание · сегодня<span class="right">XP за день: <b class="${d.xp < 0 ? "bad" : ""}">${d.xp >= 0 ? "+" : ""}${d.xp}</b></span></div>
       <div class="nut"><div><div class="big">${fmtN(r0(s.kcal))}<small>из ${fmtN(t.kcal)} ккал</small></div>
         <div class="mac">${[["Б", s.p, t.p], ["Ж", s.f, t.f], ["У", s.c, t.c]].map(([n, v, g]) => `<div>${n} <b>${r0(v)}</b> г<i style="--w:${clamp(v / (g || 1) * 100, 0, 100)}%"></i></div>`).join("")}</div></div>
         ${ring(s.kcal, t.kcal)}</div>
     </div>
-    ${questsWin(P, td)}
     ${examWin(P)}
     ${V2 && API_URL && S.player ? gatesWin(P) : ""}
     <div class="qbtns">
@@ -598,9 +690,11 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelectorAll("[data-report]").forEach(b => b.onclick = () => { openReport(P); render(); });
+  $app.querySelectorAll("[data-skresume]").forEach(b => b.onclick = () => { tab = "skills"; resumeInterview(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
-  const gd = $app.querySelector("[data-godiary]"); if (gd) gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); };
+  $app.querySelectorAll("[data-godiary]").forEach(gd => gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); });
   bindQuests(P);
   if (V2 && API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
@@ -689,6 +783,7 @@ function renderHunter(P) {
   const got = new Set(S.seen.ach.concat(ACH.filter(a => a.ok(P)).map(a => a.id)));
   $app.innerHTML = `
     ${hunterCard(P, true)}
+    <button class="btn block mb" id="open-report">📊 Отчёт Системы за неделю</button>
     ${finishedSkills().length ? `<div class="win violet"><div class="win-h">Навыки</div>${finishedSkills().map(sk => `<div class="kv"><span>${esc(sk.plan.skill_name)} · Ур. ${sk.level}</span><b>${masteryRank(sk.mastery)} · ${sk.mastery}%</b></div>`).join("")}</div>` : ""}
     ${weightWin(t)}
     <div class="win"><div class="win-h">Характеристики</div>
@@ -769,6 +864,7 @@ function renderPlayer(P) {
   else if (ptab === "about") renderAbout(P);
   else renderHunter(P);
   $app.insertAdjacentHTML("afterbegin", playerHead());
+  const orp = document.getElementById("open-report"); if (orp) orp.onclick = () => openReport(P);
   $app.querySelectorAll("[data-pt]").forEach(b => b.onclick = () => { ptab = b.dataset.pt; render(); window.scrollTo(0, 0); });
 }
 function renderAbout(P) {
@@ -791,7 +887,7 @@ function renderAbout(P) {
       <div class="kv"><span class="muted">Игроков в Системе</span><b>${board ? board.length : "—"}</b></div>
     </div>
     <div class="win"><div class="win-h">Правила Системы</div>
-      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, испытания, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Штрафы: день без записей и тренировки −30, перебор калорий больше 115% −20.`)}
+      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, испытания, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Опыт за пропуски не отнимается. Серию дней берегут щиты: 1 в начале и +1 за каждые 7 дней подряд (до 3). Пропустил день — щит сгорает, серия живёт.`)}
       ${sec("Ежедневные квесты", `Тренировка Системы (+80), учёт питания (+30), норма калорий 85–105% (+60). Все три — бонус +50 и «идеальный день». Нормы тренировки растут с уровнем.`)}
       ${sec("Ранги и экзамены", `Уровень открывает экзамен, ранг даётся только после сдачи. E→D 7 дней, D→C 14, C→B 21, B→A 30, A→S 45, S→Национальный уровень 60. Каждый день — все квесты, усиленная тренировка и честные отметки. Одна ошибка — провал и пересдача через несколько дней.`)}
       ${sec("Испытания недели и рейды", `Каждую неделю у всех открываются одни и те же испытания разной сложности и рейд. Прошёл — XP и редкий титул. Взялся и не прошёл до воскресенья — штраф. В рейде проигрывают все, если не справится хоть один.`)}
@@ -1137,7 +1233,8 @@ function renderSettings() {
   $app.innerHTML = `
     ${accountWin()}
     <div class="win"><div class="win-h">Уведомления и звук</div>
-      <div class="small mb">Система напомнит о квесте утром, днём (если ничего не записано) и вечером (если квест не закрыт), и сообщит о вызове на дуэль.</div>
+      <div class="small mb">Одно напоминание в день в удобное время. Если серия под угрозой — Система предупредит в 21:00. В воскресенье — отчёт недели. Не больше двух уведомлений в день.</div>
+      <label class="f">Время напоминания<select class="in" id="rem-h">${Array.from({ length: 16 }, (_, i) => i + 7).map(h => `<option value="${h}" ${(S.remindHour ?? 19) === h ? "selected" : ""}>${h}:00</option>`).join("")}</select></label>
       <button class="btn block ${pushOn() ? "ghost" : ""}" id="push-btn">${pushOn() ? "Уведомления включены · выключить" : "Включить уведомления"}</button>
       <div class="tiny muted mt" id="push-hint">${!("PushManager" in window) ? "Чтобы получать уведомления на iPhone, открой Ingot с иконки на экране «Домой» (iOS 16.4 или новее)." : ""}</div>
       <div class="row mt"><span class="grow small">Звуки Системы</span><button class="btn sm ${S.sound === false ? "ghost" : ""}" id="snd-btn">${S.sound === false ? "Выкл" : "Вкл"}</button></div>
@@ -1168,6 +1265,7 @@ function renderSettings() {
     <div class="center tiny dim mb"><a href="./privacy.html" target="_blank" rel="noopener" style="color:inherit">Политика приватности</a> · <a href="./terms.html" target="_blank" rel="noopener" style="color:inherit">Условия</a></div>
     <div class="center tiny dim mb">Ingot · v5.0</div>`;
   document.getElementById("push-btn").onclick = togglePush;
+  document.getElementById("rem-h").onchange = e => { S.remindHour = +e.target.value; save(); scheduleSync(500); toast(`Напомню в ${S.remindHour}:00`); };
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
 
@@ -1302,39 +1400,61 @@ function importData(ev) {
 }
 
 /* ============================ онбординг ============================ */
+let onb = { step: 0, path: [], future: "", skill: "", minutes: "30" };
+const ONB_PATHS = [["skill", "✦ Освоить навык и зарабатывать"], ["body", "⚔ Стать сильнее телом"], ["food", "◎ Навести порядок в питании"]];
 function renderOnboarding() {
-  $app.innerHTML = `<div class="onb">
-    <div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
-    <div class="tagline">СИСТЕМА · НОВЫЙ ИГРОК</div>
-    <div class="logo">Начало пути</div>
-    <div class="onb-sub">Система выбрала тебя. Назови себя, Игрок.</div>
-    <div class="win">
-      <div class="small mb muted">Система составит план питания под твою цель, будет выдавать ежедневные квесты и повышать твой уровень.</div>
-      ${profileFields(S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null, !S.player)}
-      <button class="btn-epic block mt" id="accept" style="margin-top:16px;width:100%">Начать путь</button>
-      ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}
-    </div></div>`;
-  const acc = document.getElementById("accept");
-  acc.onclick = async () => {
-    const p = readProfile(S.player ? { name: S.player.name } : {}); if (!p) return;
-    p.createdAt = today(); p.customTargets = false;
-    if (API_URL && !S.player) {
-      acc.disabled = true; acc.innerHTML = `<span class="spinner"></span>`;
-      try {
-        const d = await api("register", { name: p.name });
-        S.player = { id: d.id, token: d.token, name: d.name };
-      } catch (e) { toast(e.message, true); acc.disabled = false; acc.textContent = "Принять"; return; }
-    }
-    S.profile = p;
-    S.weights = [{ date: today(), kg: p.weight }];
-    syncSeenSilently();
-    const t = calcTargets(p);
-    tab = "status"; render();
-    system({ kind: "levelup", tag: "СИСТЕМА", head: "Путь начат",
-      body: `Добро пожаловать, ${p.name}.\n\n${planText(t)}\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}\nШаги: ${t.steps.toLocaleString("ru")} в день\n\nВыполняйте ежедневные квесты, чтобы расти в уровне.` });
-    if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
-      body: "Сохрани этот код (скриншот или заметки).\nС ним ты вернёшь прогресс на другом телефоне.\nОн также есть в Настройках.", btn: "Сохранил" });
+  const STEPS = 5, st = onb.step;
+  const head = (tag, title, sub) => `<div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
+    <div class="onb-steps">${Array.from({ length: STEPS }, (_, i) => `<i class="${i <= st ? "on" : ""}"></i>`).join("")}</div>
+    <div class="tagline">${tag}</div><div class="logo">${title}</div>${sub ? `<div class="onb-sub">${sub}</div>` : ""}`;
+  const nav = (label = "Дальше", disabled = false) => `<button class="btn-epic block mt" id="onb-next" style="margin-top:16px;width:100%" ${disabled ? "disabled" : ""}>${label}</button>
+    ${st > 0 ? `<button class="btn ghost block mt" id="onb-back">Назад</button>` : ""}`;
+  let body = "";
+  if (st === 0) body = `${head("НАЧАЛО ПУТИ", "Кем ты станешь<br>через 90 дней?", "Ingot прокачивает тебя целиком: навык, тело, питание. С чего начнём?")}
+    <div class="win"><div class="onb-chips">${ONB_PATHS.map(([k, n]) => `<button class="chip-b ${onb.path.includes(k) ? "on" : ""}" data-path="${k}">${n}</button>`).join("")}</div>
+      <label class="f mt">Опиши себя через 90 дней (необязательно)<textarea class="in" id="onb-future" rows="2" maxlength="200" placeholder="Например: делаю видео на заказ, подтянутый, без сладкого">${esc(onb.future)}</textarea></label>
+      ${nav()}
+      ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}</div>`;
+  else if (st === 1) body = `${head("НАВЫК", "Какой навык<br>прокачаем?", "Система составит личный план на 30 дней. Можно выбрать позже.")}
+    <div class="win"><div class="onb-chips">${POPULAR.slice(0, 10).map(n => `<button class="chip-b ${onb.skill === n ? "on" : ""}" data-sk="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+      <label class="f mt">Или свой<input class="in" id="onb-skill" maxlength="60" placeholder="Например: английский для работы" value="${POPULAR.includes(onb.skill) ? "" : esc(onb.skill)}"></label>
+      ${nav()}<button class="btn ghost block mt" id="onb-noskill">Пока без навыка</button></div>`;
+  else if (st === 2) body = `${head("ВРЕМЯ", "Сколько минут<br>в день готов?", "Лучше честные 15 минут каждый день, чем 2 часа раз в неделю.")}
+    <div class="win"><div class="onb-chips">${[["15", "15 минут"], ["30", "30 минут"], ["60", "1 час"], ["90", "1,5 часа"]].map(([k, n]) => `<button class="chip-b ${onb.minutes === k ? "on" : ""}" data-min="${k}">${n}</button>`).join("")}</div>${nav()}</div>`;
+  else if (st === 3) body = `${head("ТЕЛО", "Твои параметры", "Нужны, чтобы рассчитать питание и тренировки под тебя.")}
+    <div class="win">${profileFields(onb.prof || (S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null), !S.player)}${nav()}</div>`;
+  else {
+    const p = onb.prof || {}, sk = onb.skill;
+    body = `${head("КОНТРАКТ", "Контракт<br>с Системой", "")}
+    <div class="win contract"><div class="small" style="white-space:pre-line">Я, <b>${esc(p.name || (S.player && S.player.name) || "Игрок")}</b>, начинаю путь.
+
+${onb.future ? `Через 90 дней я — ${esc(onb.future)}.\n\n` : ""}Каждый день я уделяю себе <b>${onb.minutes === "60" ? "1 час" : onb.minutes === "90" ? "1,5 часа" : onb.minutes + " минут"}</b>${sk ? ` и прокачиваю навык <b>«${esc(sk)}»</b>` : ""}.
+Я не жду мотивации. Я делаю минимум даже в плохой день.
+Пропуск — не конец. Конец — это когда сдаёшься.</div>
+      <button class="sign-btn block mt" id="accept"><i></i><span>Удерживай, чтобы подписать</span></button>
+      <button class="btn ghost block mt" id="onb-back">Назад</button></div>`;
+  }
+  $app.innerHTML = `<div class="onb">${body}</div>`;
+  const $ = id => document.getElementById(id);
+  const go = n => { onb.step = n; renderOnboarding(); window.scrollTo(0, 0); };
+  if ($("onb-back")) $("onb-back").onclick = () => { if (st === 3) onb.prof = readProfileSoft(); go(st - 1); };
+  $app.querySelectorAll("[data-path]").forEach(b => b.onclick = () => { const k = b.dataset.path; onb.path = onb.path.includes(k) ? onb.path.filter(x => x !== k) : [...onb.path, k]; onb.future = $("onb-future").value.trim(); renderOnboarding(); });
+  $app.querySelectorAll("[data-sk]").forEach(b => b.onclick = () => { onb.skill = b.dataset.sk; renderOnboarding(); });
+  $app.querySelectorAll("[data-min]").forEach(b => b.onclick = () => { onb.minutes = b.dataset.min; renderOnboarding(); });
+  if ($("onb-noskill")) $("onb-noskill").onclick = () => { onb.skill = ""; go(2); };
+  if ($("onb-next")) $("onb-next").onclick = () => {
+    if (st === 0) onb.future = $("onb-future").value.trim();
+    if (st === 1) { const c = $("onb-skill").value.trim(); if (c) onb.skill = c; }
+    if (st === 3) { const p = readProfile(S.player ? { name: S.player.name } : {}); if (!p) return; onb.prof = p; }
+    go(st + 1);
   };
+  const acc = $("accept");
+  if (acc) {
+    let tmr = 0, done = false;
+    const start = e => { e.preventDefault(); if (done) return; acc.classList.add("hold"); tmr = setTimeout(() => { done = true; acc.classList.add("signed"); acc.querySelector("span").textContent = "Подписано ✓"; try { navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive && navigator.vibrate([30, 40, 80]); } catch {} sfx("rank"); finishOnboarding(acc); }, 1200); };
+    const stop = () => { if (done) return; clearTimeout(tmr); acc.classList.remove("hold"); };
+    acc.addEventListener("pointerdown", start); acc.addEventListener("pointerup", stop); acc.addEventListener("pointerleave", stop); acc.addEventListener("pointercancel", stop);
+  }
   const rs = document.getElementById("restore");
   if (rs) rs.onclick = () => sheet(`<h2>Восстановление</h2>
       <label class="f">Код восстановления<input class="in sys-font" id="rs-code" placeholder="XXXXXX-XXXXXX-XXXXXX" autocapitalize="characters" autocomplete="off"></label>
@@ -1351,6 +1471,30 @@ function renderOnboarding() {
       } catch (e) { toast(e.message, true); btn.disabled = false; }
     };
   });
+}
+function readProfileSoft() { try { const p = readProfile(S.player ? { name: S.player.name } : {}); return p || onb.prof; } catch { return onb.prof; } }
+async function finishOnboarding(acc) {
+  const p = Object.assign({}, onb.prof); if (!p.name && S.player) p.name = S.player.name;
+  p.createdAt = today(); p.customTargets = false;
+  p.path = onb.path; p.future = onb.future; p.minutes = +onb.minutes;
+  p.contract = { at: today(), skill: onb.skill || null };
+  if (API_URL && !S.player) {
+    try {
+      const d = await api("register", { name: p.name });
+      S.player = { id: d.id, token: d.token, name: d.name };
+    } catch (e) { toast(e.message, true); onb.step = 3; renderOnboarding(); return; }
+  }
+  S.profile = p;
+  S.weights = [{ date: today(), kg: p.weight }];
+  if (onb.skill && API_URL && S.player) startSkillWith({ goal: onb.skill, wk: onb.minutes, why: onb.future });
+  onb = { step: 0, path: [], future: "", skill: "", minutes: "30" };
+  syncSeenSilently();
+  const t = calcTargets(p);
+  tab = "status"; render();
+  system({ kind: "levelup", tag: "КОНТРАКТ ПОДПИСАН", head: "Путь начат",
+    body: `Добро пожаловать, ${p.name}.\n\nПервая победа — прямо сейчас. Выбери одно дело на 3 минуты: запиши еду, сделай тренировку${onb.skill ? " или ответь на вопросы для плана навыка" : ""}.\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}`, btn: "Начать" });
+  if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
+    body: "Сохрани этот код (скриншот или заметки).\nС ним ты вернёшь прогресс на другом телефоне.\nОн также есть в Настройках.", btn: "Сохранил" });
 }
 
 /* ============================ шторки ============================ */

@@ -703,6 +703,7 @@ Deno.serve(async (req) => {
           ...(v.flag ? { flags: int(p.flags) + 1 } : {}),
           title: s.title && !badText(s.title) ? String(s.title).slice(0, 40) : null,
           today_quests: int(s.today_quests, 0, 10), today_total: int(s.today_total, 1, 10),
+          ...(s.remind_hour != null && s.remind_hour !== "" ? { remind_hour: int(s.remind_hour, 0, 23) } : {}),
           stats_date: /^\d{4}-\d{2}-\d{2}$/.test(String(s.stats_date)) ? s.stats_date : null,
           skill_state: ["none", "todo", "done", "rest"].includes(String(s.skill_state)) ? String(s.skill_state) : "none",
           skill_date: isDay(s.stats_date) ? s.stats_date : null,
@@ -893,13 +894,27 @@ Deno.serve(async (req) => {
         const { data: subs } = await db.from("push_subs").select("player_id");
         const ids = [...new Set((subs ?? []).map((x) => x.player_id))];
         if (!ids.length) return json({ sent: 0 });
-        const { data: ps } = await db.from("players").select("id,name,today_quests,today_total,stats_date,skill_state,skill_date,streak").in("id", ids);
+        const { data: ps } = await db.from("players").select("id,name,today_quests,today_total,stats_date,skill_state,skill_date,streak,remind_hour").in("id", ids);
         let sent = 0;
+        // Ташкент UTC+5: текущий час и день недели (0 = воскресенье)
+        const now5 = new Date(Date.now() + 5 * 3600e3), hour = now5.getUTCHours(), wd = now5.getUTCDay();
         for (const pl of ps ?? []) {
           const fresh = pl.stats_date === td, q = fresh ? pl.today_quests : 0, total = pl.today_total || 3;
           const skillTodo = pl.skill_date === td ? pl.skill_state === "todo" : pl.skill_state !== "none" && pl.skill_state !== "rest";
           let title = "", body = "";
-          if (slot === "morning") {
+          if (slot === "hour") {
+            // Одно напоминание в выбранный час + вечернее «спасение серии» + воскресный отчёт. Не больше 2 пушей в день.
+            const rh = pl.remind_hour ?? 19, active = q > 0 || (pl.skill_date === td && pl.skill_state === "done");
+            if (hour === rh && (q < total || skillTodo)) {
+              title = "Ingot · план на сегодня";
+              body = `${pl.name}, ${q ? `сделано ${q}/${total}. ` : ""}${skillTodo ? "Задание навыка ждёт. " : ""}${pick(PUSH_MORNING)}`;
+            } else if (hour === 21 && rh !== 21 && !active && (pl.streak ?? 0) >= 2) {
+              title = `🔥 Серия ${pl.streak} дн. гаснет`;
+              body = "Сделай минимум до полуночи: запиши еду или короткую тренировку — и серия живёт.";
+            } else if (hour === 20 && wd === 0 && rh !== 20) {
+              title = "Ingot · отчёт недели готов"; body = "Посмотри, как ты вырос за 7 дней — и сравни себя с собой месяц назад.";
+            }
+          } else if (slot === "morning") {
             title = "[СИСТЕМА] Новый день"; body = `${pl.name}, ${pick(PUSH_MORNING)}${skillTodo ? " Задание навыка тоже ждёт." : ""}`;
           } else if (slot === "day") {
             if (!fresh || q === 0) { title = "[СИСТЕМА] Ты ещё не начал"; body = "Сегодня нет ни одной записи. Запиши, что съел, — это займёт минуту."; }

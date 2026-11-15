@@ -148,3 +148,4 @@ alter table public.players add column if not exists xp_base int;
 alter table public.players add column if not exists xp_base_day date;
 alter table public.players add column if not exists xp_span int not null default 1;
 alter table public.players add column if not exists flags int not null default 0;
+alter table public.players add column if not exists remind_hour int;
