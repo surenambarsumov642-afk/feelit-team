@@ -1,4 +1,4 @@
-// ARISE — сканер штрихкодов: задняя камера + ZXing (WebAssembly), всё на телефоне.
+// Ingot — сканер штрихкодов: задняя камера + ZXing (WebAssembly), всё на телефоне.
 let zx = null;
 function loadZX() {
   if (zx) return zx;
@@ -79,7 +79,7 @@ export function openScanner(o) {
       $("sc-st").textContent = "Ищу штрихкод…";
       tick();
     } catch (e) {
-      $("sc-st").textContent = (e && e.name === "NotAllowedError") ? "Нет доступа к камере. Разреши камеру для ARISE в настройках iPhone." : (e.message || String(e));
+      $("sc-st").textContent = (e && e.name === "NotAllowedError") ? "Нет доступа к камере. Разреши камеру для Ingot в настройках iPhone." : (e.message || String(e));
       $("sc-st").classList.add("bad");
     }
   })();

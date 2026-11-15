@@ -1,4 +1,4 @@
-// ARISE — экран входа: загрузка «Системы», фраза дня и пробуждение игрока. Касание «Войти» включает звук (iOS).
+// Ingot — экран входа: загрузка «Системы», фраза дня и пробуждение игрока. Касание «Войти» включает звук (iOS).
 import { phrase, sfx, unlockAudio } from "./phrases.js";
 
 const BOOT = ["Подключение к Системе", "Синхронизация с игроком", "Проверка статуса", "Загрузка ежедневных квестов"];
@@ -11,12 +11,12 @@ export function showIntro(o) {
     ov.className = "intro";
     ov.innerHTML = `<div class="intro-in">
         <div class="intro-eb" id="ieb">◇ ИНИЦИАЛИЗАЦИЯ</div>
-        <div class="intro-sys" data-text="[СИСТЕМА]">[СИСТЕМА]</div>
+        <div class="intro-sys" data-text="INGOT">INGOT</div>
         <div class="intro-spacer"></div>
         <div class="intro-q" id="iq"></div>
         <div class="intro-p" id="ip"></div>
         <div class="intro-panel"><div class="intro-boot" id="ib"></div><div class="intro-bar"><i id="ibar"></i></div></div>
-        <button class="intro-go" id="igo">${o.first ? "Пробудиться" : "Войти ›"}</button>
+        <button class="intro-go" id="igo">${o.first ? "Начать путь" : "Войти ›"}</button>
         <div class="intro-skip">коснись, чтобы пропустить</div>
       </div>`;
     document.body.appendChild(ov);
@@ -46,7 +46,7 @@ export function showIntro(o) {
       await type($("iq"), phrase("intro"), 38);
       await wait(skip ? 0 : 450);
       $("ip").innerHTML = o.first ? `<b>Новый игрок обнаружен</b>` :
-        `ИГРОК <b>${o.name}</b> · LV. <b>${o.level}</b> · РАНГ <b>${o.rank}</b><div class="intro-rn">${o.rankName.toUpperCase()}</div>`;
+        `ИГРОК <b>${o.name}</b> · LV. <b>${o.level}</b> <div class="intro-rn">${o.rank.toUpperCase()}</div>`;
       ov.classList.add("ready");
     })();
   });

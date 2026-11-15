@@ -1,4 +1,4 @@
-/* ARISE — «Liquid Glass · Система» (v3). Слой поверх styles.css: токены, стекло, кнопки, поля, меню, окна. */
+/* Ingot — «Liquid Glass · Система» (v3). Слой поверх styles.css: токены, стекло, кнопки, поля, меню, окна. */
 :root{
   --bg:#05060c;
   --t1:#f3f5ff; --t2:rgba(226,231,255,.66); --t3:rgba(226,231,255,.50);
@@ -322,9 +322,9 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 /* ранги-шестигранники */
 .rank-mini{width:30px;height:32px;border:0;border-radius:0;box-shadow:none;color:#fff!important;font-family:var(--display);font-weight:600;font-size:13px;
   clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:linear-gradient(145deg,var(--rk1,#8b93a8),var(--rk2,#4a5066))}
-.rank-mini.rank-E{--rk1:#9aa3b8;--rk2:#4b5165}.rank-mini.rank-D{--rk1:#6f8cff;--rk2:#3346b8}.rank-mini.rank-C{--rk1:#4fe0d0;--rk2:#13807a}
-.rank-mini.rank-B{--rk1:#b48cff;--rk2:#5b2fc0}.rank-mini.rank-A{--rk1:#ff6b85;--rk2:#a3163a}.rank-mini.rank-S{--rk1:#ffd98a;--rk2:#c88a12}
-.rank-mini.rank-N{--rk1:#9fe8ff;--rk2:#b48cff}
+.rank-E{--rk1:#ff7a5c;--rk2:#b3200f}.rank-D{--rk1:#ff9a4a;--rk2:#b4400c}.rank-C{--rk1:#ffbe55;--rk2:#b8650a}
+.rank-B{--rk1:#ffe08a;--rk2:#c98a14}.rank-A{--rk1:#fff6dc;--rk2:#ffb347}.rank-S{--rk1:#ffd76a;--rk2:#a8700a}.rank-N{--rk1:#fff0b8;--rk2:#9a6bff}
+.rank-mini.rank-A,.rank-mini.rank-B,.rank-mini.rank-N{color:#2a1604!important}
 .chart .b i{background:linear-gradient(180deg,#9fc0ff,#5b7cff);border-radius:3px;box-shadow:0 0 8px rgba(120,140,255,.5)}
 .chart .goal{border-color:rgba(255,194,74,.6)}
 .chart .goal span{color:var(--gold2)}
@@ -365,3 +365,11 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 .cam-timer{border-radius:20px}
 .scan-frame{border-radius:24px;border:1.5px solid rgba(220,230,255,.85);box-shadow:0 0 0 100vmax rgba(3,4,10,.55),0 0 30px rgba(120,150,255,.5)}
 .scan-frame i{background:#ff4d6d;box-shadow:0 0 14px #ff4d6d}
+
+/* ---------- ранги Ingot: Искра → Легенда ---------- */
+.chip-g.rkc{gap:6px;padding-left:8px;color:var(--t1)}
+.chip-g.rkc .rk-glyph{filter:drop-shadow(0 0 5px var(--rk2))}
+.rank-badge{display:grid;place-items:center}
+.rank-badge .rk-glyph{filter:drop-shadow(0 0 12px var(--rk2))}
+.emb-rank{font-family:var(--display);font-weight:600;font-size:13px;letter-spacing:2px;white-space:nowrap;text-align:center;margin-top:6px;text-shadow:0 0 14px currentColor}
+.rank-N.chip-g.rkc{background:linear-gradient(90deg,rgba(255,215,120,.18),rgba(154,107,255,.18))}

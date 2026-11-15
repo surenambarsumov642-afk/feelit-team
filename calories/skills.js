@@ -1,6 +1,7 @@
-// ARISE — модуль «Навыки»: интервью → план на 30 дней → ежедневные задания с проверкой → повторение → боссы → финальный проект.
+// Ingot — модуль «Навыки»: интервью → план на 30 дней → ежедневные задания с проверкой → повторение → боссы → финальный проект.
 // Состояние хранится в S.skills (локально + резервная копия на сервере через sync). ИИ — через действие сервера "skill".
 
+import { rankMono } from "./exams.js";
 let X; // контекст из app.js: { S(), save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, drawPhoto, API_URL }
 export function initSkills(ctx) { X = ctx; }
 
@@ -155,7 +156,7 @@ function renderGate($app, sk) {
       ${gateHtml()}
       <div class="gate-title">ВРАТА НАВЫКА</div>
       <div class="gate-sub">Один навык · 30 дней · без отмены</div>
-      <button class="btn-epic" id="sk-open">${sk ? "Вернуться во Врата" : "Открыть Врата"}</button>
+      <button class="btn-epic" id="sk-open">${sk ? "Продолжить путь" : "Начать путь"}</button>
       ${sk ? `<div class="tiny muted center mt">Интервью сохранено: вопрос ${(sk.qi || 0) + 1}</div>` : ""}
     </div>
     <div class="gate-feats">
@@ -167,7 +168,7 @@ function renderGate($app, sk) {
         const hist = done.filter(x => chainOf(x) === chainOf(s) && x !== s).sort((a, b) => (a.level || 1) - (b.level || 1));
         const m = upgradeMode(s);
         return `<div class="sk-chain"><div class="ach got">
-        <div class="ic">${masteryRank(s.mastery)}</div>
+        <div class="ic">${rankMono(masteryRank(s.mastery))}</div>
         <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}${s.mode && s.mode !== "upgrade" ? ` <span class="tiny muted">(${MODE_N[s.mode]})</span>` : ""}</div>
           <div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div>
           ${hist.length ? `<div class="tiny dim">${hist.map(h => `Ур. ${h.level}: ${h.mastery}%`).join(" · ")}</div>` : ""}</div></div>
@@ -261,7 +262,7 @@ function startUpgrade(prev) {
     ov.classList.add("flash");
     await new Promise(r => setTimeout(r, 700));
     ov.classList.add("talk");
-    await typeText(ov.querySelector("#gm1"), mode === "upgrade" ? "Ты прошёл первые Врата. За ними — следующие." :
+    await typeText(ov.querySelector("#gm1"), mode === "upgrade" ? "Ты прошёл первую ступень. Впереди — следующая." :
       mode === "consolidate" ? "Освоение ниже 60%. Система не пустит дальше, пока основа не станет крепкой." : "Ты долго не возвращался. Сила ослабла — но не исчезла.");
     await typeText(ov.querySelector("#gm2"), "Система анализирует прошлый месяц…");
     let an = null;
@@ -589,7 +590,7 @@ const MOTTOS = [
   "Слабость — не приговор. Это стартовая точка.",
   "Пока ты сомневаешься, кто-то другой выполняет задание.",
   "Ты выбрал этот путь сам. Докажи, что выбор был верным.",
-  "Охотник растёт не в день битвы, а в каждый скучный день до неё.",
+  "Воин растёт не в день битвы, а в каждый скучный день до неё.",
   "Мотивация уходит. Дисциплина остаётся.",
 ];
 function renderActive($app, sk) {
@@ -615,7 +616,7 @@ function renderActive($app, sk) {
     ${sk.level > 1 || finishedSkills().some(x => chainOf(x) === chainOf(sk)) ? `<button class="btn sm block mb" data-world="${chainOf(sk)}">🌍 Выход в мир</button>` : ""}
     <div class="win violet">
       <div class="row"><div class="grow"><div class="tiny muted">Освоение сейчас</div><div class="sys-font" style="font-size:26px;color:#fff">${st.mastery}%</div></div>
-        <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${masteryRank(st.mastery)}</div></div>
+        <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${rankMono(masteryRank(st.mastery))}</div></div>
       <div class="bar violet thick mt"><i style="width:${Math.min(n, 30) / 30 * 100}%"></i></div>
       <div class="tiny muted mt">Выполнено ${st.done}/${st.need} · боссы ${st.bossScores.filter(x => x !== null).length}/4 · неделя ${week}: ${e(p.weeks[week - 1] ? p.weeks[week - 1].theme : "")}</div>
       <div class="tiny mt" style="color:var(--violet2)">«${e(p.profile.motivation)}»</div>
@@ -730,7 +731,7 @@ function openBoss(sk, w) {
     const box = () => el.querySelector("#bs");
     const load = async () => {
       if (sk.bosses[w] && sk.bosses[w].boss) return fight();
-      busy(box(), "Врата открываются…");
+      busy(box(), "Система строит твой путь…");
       try {
         const days = sk.plan.days.filter(d => d.day > (w - 1) * 7 && d.day <= w * 7);
         const boss = await ask("boss", { skill: sk.plan.skill_name, level: sk.plan.profile.level, week: sk.plan.weeks[w - 1],

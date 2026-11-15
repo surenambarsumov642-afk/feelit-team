@@ -1,6 +1,6 @@
 // Офлайн-кэш оболочки приложения + приём уведомлений. Запросы к серверу (Supabase) не кэшируются.
 // Свои файлы всегда проверяются на сервере (cache: "no-cache"), поэтому обновления приходят сразу, а офлайн работает кэш.
-const CACHE = "arise-v15";
+const CACHE = "arise-v18";
 const SHELL = ["./", "index.html", "styles.css", "glass.css", "app.js", "config.js", "foods.js", "skills.js", "gates.js", "exams.js", "phrases.js", "repcount.js", "pose.js", "scanner.js", "intro.js", "world.js",
   "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 

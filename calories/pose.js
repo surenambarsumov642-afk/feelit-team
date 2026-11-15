@@ -1,4 +1,4 @@
-// ARISE — камера Системы: распознаёт позу на телефоне (MediaPipe, видео никуда не отправляется) и считает повторы.
+// Ingot — камера Системы: распознаёт позу на телефоне (MediaPipe, видео никуда не отправляется) и считает повторы.
 import { RepCounter, EXERCISES, BONES } from "./repcount.js";
 
 let landmarker = null, loading = null;
@@ -105,7 +105,7 @@ export function openCamera(o) {
       if (o.race) startRace();
       loop();
     } catch (e) {
-      $("cam-st").textContent = (e && e.name === "NotAllowedError") ? "Нет доступа к камере. Разреши камеру для ARISE в настройках iPhone." : "Ошибка камеры: " + (e.message || e);
+      $("cam-st").textContent = (e && e.name === "NotAllowedError") ? "Нет доступа к камере. Разреши камеру для Ingot в настройках iPhone." : "Ошибка камеры: " + (e.message || e);
       $("cam-st").classList.add("bad");
     }
   })();
