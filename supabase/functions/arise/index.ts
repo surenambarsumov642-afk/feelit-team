@@ -614,6 +614,63 @@ async function skillAI(kind: string, ctx: Record<string, unknown>, image?: strin
   return await ai(parts, MENTOR, k.schema, opts);
 }
 
+
+
+
+/* ---------------- общий дневной лимит ИИ (страховка от счёта) ----------------
+ Сверх лимитов на игрока: все запросы к ИИ за сутки по всему приложению (AI_DAY_CAP, по умолчанию 5000).
+ Плюс новые аккаунты первые сутки получают половину лимитов — чтобы не плодили аккаунты ради бесплатного ИИ. */
+async function aiGate() {
+  const cap = int(Deno.env.get("AI_DAY_CAP") ?? 5000, 10, 1e7), key = "ai_day:" + todayUTC5();
+  const used = Number(await cfg(key) ?? 0);
+  if (used >= cap) return false;
+  await db.from("app_config").upsert({ key, value: String(used + 1) }, { onConflict: "key" });
+  return true;
+}
+const freshLimit = (p: Record<string, any>, limit: number) =>
+  Date.now() - Date.parse(String(p.created_at ?? "")) < 864e5 ? Math.max(1, Math.floor(limit / 2)) : limit;
+const BUSY = "Система перегружена запросами. Попробуй чуть позже или введи вручную.";
+
+/* ---------------- модерация публичного текста (имена, продукты, титулы) ---------------- */
+const BAD = /(х[уy][йеёяи]|пизд|ебан|ебат|ебал|заеб|выеб|уеба|ёб|бляд|блят|сука|сучк|мудак|мудил|пид[оа]р|гандон|шлюх|залуп|дроч|порн|fuck|shit|bitch|cunt|nigg|fag|porn|jalab|qotoq|qo'toq|sikish|sikay)/i;
+const LINK = /(https?:|www\.|t\.me|\.(com|ru|uz|net|org|me|io)\b|@\w{3,})/i;
+const norm = (t: string) => t.toLowerCase().replace(/[0@]/g, "о").replace(/[3]/g, "з").replace(/[1!|]/g, "и").replace(/[^a-zа-яё']/g, "");
+export function badText(t: unknown) { const s = String(t ?? ""); return BAD.test(s) || BAD.test(norm(s)) || LINK.test(s); }
+
+/* ---------------- защита от накрутки (sync) ----------------
+ Клиент считает опыт сам (офлайн-первое приложение), сервер проверяет правдоподобие:
+ - за календарный день опыт может вырасти не больше чем на XP_DAY_MAX (с запасом на экзамены и испытания);
+   если игрок долго был офлайн — лимит умножается на число дней (до 60);
+ - уровень пересчитывается из опыта по формуле клиента (N→N+1 стоит 100 + 25·(N−1));
+ - ранг не выше положенного по уровню и растёт не больше чем на ступень за синхронизацию;
+ - серии и счётчики не больше числа дней с регистрации. */
+const XP_DAY_MAX = int(Deno.env.get("XP_DAY_MAX") ?? 1500, 100, 100000);
+const XP_DAY_MIN = 1000;
+const RANKS_ORDER = ["E", "D", "C", "B", "A", "S", "N"];
+const RANK_LEVEL = [0, 10, 20, 35, 50, 70, 85];
+const todayISO = () => todayUTC5();
+const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
+function levelFromXp(xp: number) { let lvl = 1, left = Math.max(0, xp); while (left >= 100 + 25 * (lvl - 1) && lvl < 999) { left -= 100 + 25 * (lvl - 1); lvl++; } return lvl; }
+export function checkStats(p: Record<string, any>, s: Record<string, unknown>) {
+  const today = todayISO(), created = String(p.created_at ?? today).slice(0, 10);
+  const life = Math.max(1, daysBetween(created, today) + 1);
+  let base = Number(p.xp_base ?? p.xp ?? 0), baseDay = p.xp_base_day ? String(p.xp_base_day).slice(0, 10) : null, span = int(p.xp_span ?? 1, 1, 60);
+  if (baseDay !== today) {
+    span = baseDay ? Math.min(60, Math.max(1, daysBetween(baseDay, today))) : Math.min(60, life);
+    base = Number(p.xp ?? 0); baseDay = today;
+  }
+  const claimed = int(s.xp, -1e6, 1e9), cap = base + XP_DAY_MAX * span;
+  const xp = Math.max(0, Math.min(claimed, cap));
+  const level = levelFromXp(xp);
+  const prevIdx = Math.max(0, RANKS_ORDER.indexOf(String(p.rank ?? "E")));
+  let ri = Math.max(0, RANKS_ORDER.indexOf(String(s.rank ?? "E").slice(0, 1)));
+  let byLevel = 0; RANK_LEVEL.forEach((lv, i) => { if (level >= lv) byLevel = i; });
+  ri = Math.min(ri, byLevel, prevIdx + 1);
+  const streak = int(s.streak, 0, life), best = Math.max(streak, int(s.best_streak, 0, life));
+  return { xp, level, rank: RANKS_ORDER[ri], base, baseDay, span, streak, best,
+    perfect: int(s.perfect_days, 0, life), workouts: int(s.workouts, 0, life * 6), flag: claimed > cap };
+}
+
 /* ---------------- обработчик ---------------- */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -626,6 +683,7 @@ Deno.serve(async (req) => {
       case "register": {
         const name = String(b.name ?? "").trim().replace(/\s+/g, " ").slice(0, 24);
         if (name.length < 2) return fail("Имя слишком короткое");
+        if (badText(name)) return fail("Это имя нельзя использовать. Выбери другое.");
         const token = newToken();
         const { data, error } = await db.from("players")
           .insert({ name, token_hash: await sha256(normToken(token)) }).select("id").single();
@@ -638,11 +696,12 @@ Deno.serve(async (req) => {
         const s = (b.stats ?? {}) as Record<string, unknown>;
         const save = b.save ?? null;
         if (save && JSON.stringify(save).length > 1_500_000) return fail("Слишком большая копия данных");
+        const v = checkStats(p, s);
         const { error } = await db.from("players").update({
-          level: int(s.level, 1, 999), rank: String(s.rank ?? "E").slice(0, 1), xp: int(s.xp),
-          streak: int(s.streak, 0, 100000), best_streak: int(s.best_streak, 0, 100000),
-          perfect_days: int(s.perfect_days, 0, 100000), workouts: int(s.workouts, 0, 100000),
-          title: s.title ? String(s.title).slice(0, 40) : null,
+          level: v.level, rank: v.rank, xp: v.xp, xp_base: v.base, xp_base_day: v.baseDay, xp_span: v.span,
+          streak: v.streak, best_streak: v.best, perfect_days: v.perfect, workouts: v.workouts,
+          ...(v.flag ? { flags: int(p.flags) + 1 } : {}),
+          title: s.title && !badText(s.title) ? String(s.title).slice(0, 40) : null,
           today_quests: int(s.today_quests, 0, 10), today_total: int(s.today_total, 1, 10),
           stats_date: /^\d{4}-\d{2}-\d{2}$/.test(String(s.stats_date)) ? s.stats_date : null,
           skill_state: ["none", "todo", "done", "rest"].includes(String(s.skill_state)) ? String(s.skill_state) : "none",
@@ -651,12 +710,14 @@ Deno.serve(async (req) => {
         }).eq("id", p.id);
         if (error) return fail("Ошибка сохранения", 500);
         if (Array.isArray(b.days)) {
-          const rows = (b.days as Record<string, unknown>[]).filter((d) => isDay(d.day)).slice(-400).map((d) => ({
-            player_id: p.id, day: d.day, xp: int(d.xp, -100000, 100000), norm: !!d.norm, workout: !!d.workout, quests: int(d.quests, 0, 10),
-          }));
+          const created = String(p.created_at ?? "").slice(0, 10);
+          const rows = (b.days as Record<string, unknown>[]).filter((d) => isDay(d.day) && String(d.day) >= addDaysISO(created, -1) && String(d.day) <= addDaysISO(todayISO(), 1))
+            .slice(-400).map((d) => ({
+              player_id: p.id, day: d.day, xp: int(d.xp, -XP_DAY_MIN, XP_DAY_MAX), norm: !!d.norm, workout: !!d.workout, quests: int(d.quests, 0, 10),
+            }));
           if (rows.length) await db.from("player_days").upsert(rows, { onConflict: "player_id,day" });
         }
-        return json({ ok: true });
+        return json({ ok: true, xp: v.xp, level: v.level, rank: v.rank, capped: v.flag });
       }
       case "leaderboard": {
         const { data, error } = await db.from("players")
@@ -770,10 +831,11 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const image = String(b.image ?? "");
         if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
-        const limit = int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000);
+        const limit = freshLimit(p, int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000));
         const day = todayUTC5();
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Используй ручной ввод.`, 429);
+        if (!(await aiGate())) return fail(BUSY, 503);
         await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
         const res = await ai(imageParts(image, String(b.hint ?? "").slice(0, 300)), SYSTEM, SCHEMA, { maxTokens: 2000 });
         return json({ ...res, photos_left: limit - used - 1 });
@@ -783,10 +845,11 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const text = String(b.text ?? "").trim().slice(0, 300);
         if (text.length < 2) return fail("Опиши, что ты съел");
-        const limit = int(Deno.env.get("TEXT_LIMIT") ?? 40, 1, 1000);
+        const limit = freshLimit(p, int(Deno.env.get("TEXT_LIMIT") ?? 40, 1, 1000));
         const day = todayUTC5();
         const used = p.text_day === day ? p.text_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} расчётов в день исчерпан. Введи КБЖУ вручную.`, 429);
+        if (!(await aiGate())) return fail(BUSY, 503);
         await db.from("players").update({ text_day: day, text_count: used + 1 }).eq("id", p.id);
         const res = await ai([{ text: `Что съел пользователь: ${text}` }], TEXT_SYSTEM, SCHEMA, { maxTokens: 1500 });
         return json(res);
@@ -800,10 +863,11 @@ Deno.serve(async (req) => {
         if (JSON.stringify(ctx).length > 60_000) return fail("Слишком большой запрос");
         const image = b.image ? String(b.image) : undefined;
         if (image && image.length > 4_000_000) return fail("Фото слишком большое");
-        const limit = int(Deno.env.get("SKILL_LIMIT") ?? 40, 1, 1000);
+        const limit = freshLimit(p, int(Deno.env.get("SKILL_LIMIT") ?? 40, 1, 1000));
         const day = todayUTC5();
         const used = p.skill_day === day ? p.skill_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} запросов к наставнику в день исчерпан. Продолжим завтра.`, 429);
+        if (!(await aiGate())) return fail(BUSY, 503);
         await db.from("players").update({ skill_day: day, skill_count: used + 1 }).eq("id", p.id);
         return json(await skillAI(kind, ctx, image));
       }
@@ -935,6 +999,7 @@ Deno.serve(async (req) => {
         if (!code) return fail("Неверный штрихкод");
         const name = String(b.name ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
         if (name.length < 2) return fail("Укажи название продукта");
+        if (badText(name) || badText(b.brand)) return fail("Название не прошло проверку. Напиши, как на упаковке.");
         const kcal = n1(b.kcal, 950), pp = n1(b.p, 100), ff = n1(b.f, 100), cc = n1(b.c, 100);
         if (kcal == null || pp == null || ff == null || cc == null) return fail("Проверь КБЖУ: значения на 100 г");
         if (pp + ff + cc > 101) return fail("Белки + жиры + углеводы не могут быть больше 100 г на 100 г");
@@ -969,10 +1034,11 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const image = String(b.image ?? "").replace(/^data:[^,]*,/, "");
         if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
-        const limit = int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000);
+        const limit = freshLimit(p, int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000));
         const day = todayUTC5();
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Введи данные с этикетки вручную.`, 429);
+        if (!(await aiGate())) return fail(BUSY, 503);
         await db.from("players").update({ photo_day: day, photo_count: used + 1 }).eq("id", p.id);
         return json(await ai([{ image }, { text: "Прочитай таблицу пищевой ценности на этикетке." }], LABEL_SYSTEM, LABEL_SCHEMA, { maxTokens: 800 }));
       }
@@ -989,6 +1055,7 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const name = String(b.name ?? "").trim().replace(/\s+/g, " ").slice(0, 24);
         if (name.length < 2) return fail("Имя слишком короткое");
+        if (badText(name)) return fail("Это имя нельзя использовать. Выбери другое.");
         if (name === p.name) return json({ name });
         const { error } = await db.from("players").update({ name, updated_at: new Date().toISOString() }).eq("id", p.id);
         if (error) return fail(error.code === "23505" ? "Это имя уже занято" : "Не удалось сменить имя");
@@ -1014,4 +1081,4 @@ Deno.serve(async (req) => {
 });
 
 // для проверки в CI (.github/workflows/test-ai.yml)
-export { ai, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts, LABEL_SYSTEM, LABEL_SCHEMA, fromOFF, offLookup };
+export { ai, levelFromXp, badText as _badText, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts, LABEL_SYSTEM, LABEL_SCHEMA, fromOFF, offLookup };

@@ -23,6 +23,8 @@ jobs:
           curl -sSL -A "ARISE-diagnostics/1.0 (github actions)" -o orig.jpg "https://upload.wikimedia.org/wikipedia/commons/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg"
           python3 -m pip install -q pillow 2>/dev/null || pip install -q --break-system-packages pillow
           python3 -c "from PIL import Image; im=Image.open('orig.jpg').convert('RGB'); im.thumbnail((1024,1024)); im.save('food.jpg', quality=80)"
+      - name: Защита от накрутки и модерация
+        run: deno run -A supabase/tests/xp_test.ts
       - name: Уведомления (web-push в Deno)
         run: deno run -A supabase/tests/push_test.ts
       - name: Запросы к ИИ
