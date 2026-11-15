@@ -373,3 +373,9 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 .rank-badge .rk-glyph{filter:drop-shadow(0 0 12px var(--rk2))}
 .emb-rank{font-family:var(--display);font-weight:600;font-size:13px;letter-spacing:2px;white-space:nowrap;text-align:center;margin-top:6px;text-shadow:0 0 14px currentColor}
 .rank-N.chip-g.rkc{background:linear-gradient(90deg,rgba(255,215,120,.18),rgba(154,107,255,.18))}
+
+/* ---------- экран «Сегодня» ---------- */
+.today-win .today-bar{margin:2px 0 10px}
+.today-win .quest .box{font-size:13px;color:var(--t2)}
+.today-win .quest.done .box{color:#fff}
+.today-win .quest.cta{background:linear-gradient(135deg,rgba(91,124,255,.22),rgba(154,107,255,.16));border-radius:14px;padding-left:8px;padding-right:8px}

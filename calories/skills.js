@@ -805,6 +805,13 @@ function finishSkill(sk) {
 }
 
 /** Состояние задания навыка на сегодня (для напоминаний): none / todo / done / rest. */
+/** Для экрана «Сегодня»: состояние и название задания навыка на сегодня. */
+export function skillToday() {
+  const state = skillTodayState(), sk = (X.S().skills || []).find(s => s.status === "active");
+  if (!sk || !sk.plan) return { state, skill: null, title: "" };
+  const n = dayOf(sk, X.today()), pd = n >= 1 && n <= 30 ? planDay(sk, n) : null;
+  return { state, skill: sk.plan.skill_name, title: n > 30 ? "Финальный проект" : (pd && pd.title) || "", day: n };
+}
 export function skillTodayState() {
   const sk = (X.S().skills || []).find(s => s.status === "active");
   if (!sk || !sk.plan || !sk.start) return "none";

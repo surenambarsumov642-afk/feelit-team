@@ -1,7 +1,7 @@
 // Ingot — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
-import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, openWorldView } from "./skills.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, skillToday, openWorldView } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE, RANKS, RANK_LV, rankName, rankMono, rankLabel, rankGlyph } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
@@ -443,7 +443,7 @@ function renderTabbar() {
   if (!S.profile) { bar && bar.remove(); return; }
   if (!bar) { bar = document.createElement("nav"); bar.className = "tabbar"; document.body.appendChild(bar); }
   const b = (id, label) => `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${ICONS[id]}<span>${label}</span></button>`;
-  bar.innerHTML = `<div class="in">${b("status", "Статус")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
+  bar.innerHTML = `<div class="in">${b("status", "Сегодня")}${b("diary", "Дневник")}${b("skills", "Навыки")}${b("rating", "Рейтинг")}${b("player", "Игрок")}</div>
     <button class="tab-add fab" data-act="add" aria-label="Добавить еду">${ICONS.plus}</button>`;
   bar.querySelectorAll("[data-tab]").forEach(x => x.onclick = () => { if (tab !== x.dataset.tab && S.sound !== false) sfx("tab"); tab = x.dataset.tab; render(); window.scrollTo(0, 0); $app.classList.remove("enter"); void $app.offsetWidth; $app.classList.add("enter"); });
   bar.querySelector("[data-act=add]").onclick = () => openAddSheet();
@@ -566,22 +566,40 @@ function questsWin(P, date) {
     <div class="tiny muted mb">[Подготовка к укреплению тела]</div>${rows}</div>`;
 }
 
+/** «Сегодня»: до 5 главных дел дня по всем опорам — навык, тело, питание, выход в мир. */
+function todayWin(P) {
+  const td = today(), d = P.days[td], sk = skillToday(), due = worldDue();
+  const rows = [];
+  if (sk.skill) rows.push({ done: sk.state === "done" || sk.state === "rest", ic: "✦", t: sk.state === "rest" ? "День отдыха навыка" : `Навык: ${sk.title || "задание дня"}`,
+    p: `${sk.skill}${sk.day && sk.day <= 30 ? ` · день ${sk.day}/30` : ""}`, xp: "+40", attr: "data-skgo" });
+  else rows.push({ done: false, ic: "✦", t: "Выбери навык", p: "ИИ составит личный план на 30 дней", xp: "", attr: "data-skgo", cta: true });
+  const w = d.q.workout;
+  rows.push({ done: w.done, ic: "⚔", t: "Тренировка", p: w.prog, xp: w.done && !w.verified ? "+40" : "+80", attr: `data-workout="${td}"` });
+  rows.push({ done: d.q.log.done, ic: "◎", t: "Записать еду", p: d.q.log.prog, xp: "+" + XP.log, attr: "data-godiary" });
+  rows.push({ done: d.q.norm.done, fail: d.q.norm.over, ic: "◐", t: "Уложиться в норму", p: d.q.norm.prog + (d.q.norm.over ? " · превышено" : ""), xp: "+" + XP.norm, attr: "data-godiary" });
+  if (due.length) rows.push({ done: false, ic: "🌍", t: "Выход в мир", p: `Написать: ${due.slice(0, 2).map(x => x.c.name).join(", ")}${due.length > 2 ? "…" : ""}`, xp: "", attr: `data-wdue="${due[0].chain}"` });
+  const list = rows.slice(0, 5), n = list.filter(r => r.done).length;
+  return `<div class="win today-win"><div class="win-h">Сегодня<span class="right">${n}/${list.length} · 🔥 ${P.streak} · 🛡 ${P.shields}</span></div>
+    <div class="bar today-bar"><i style="width:${(n / list.length * 100).toFixed(0)}%"></i></div>
+    ${list.map(r => `<div class="quest ${r.done ? "done" : r.fail ? "fail" : ""} ${r.cta ? "cta" : ""}" ${r.attr} style="cursor:pointer"><div class="box">${r.done ? "✓" : r.fail ? "✕" : r.ic}</div>
+      <div class="grow"><div class="qt">${esc(r.t)}</div><div class="qp">${esc(r.p)}</div></div><div class="xp">${r.cta ? "›" : r.xp}</div></div>`).join("")}
+    <div class="tiny muted mt">${n === list.length ? "День закрыт. Так и строится сила." : `Всё за день — бонус +${XP.allBonus} XP.`}</div></div>`;
+}
+
 /* ============================ экран: Статус ============================ */
 function renderStatus(P) {
   const t = targets(), td = today(), d = P.days[td], s = d.s;
   const y = P.days[addDays(td, -1)];
   $app.innerHTML = `
     ${statusTop(P)}
-    ${(() => { const due = worldDue(); return due.length ? `<div class="win" style="border-color:rgba(255,194,74,.6)" data-wdue="${due[0].chain}"><div class="win-h" style="color:#ffd77a">🌍 Выход в мир<span class="right">›</span></div>
-      <div class="small">Сегодня написать: ${due.slice(0, 3).map(x => esc(x.c.name)).join(", ")}${due.length > 3 ? ` и ещё ${due.length - 3}` : ""}</div></div>` : ""; })()}
-    ${statusCard()}
+    ${todayWin(P)}
+    ${skillToday().skill ? statusCard() : ""}
     <div class="win" data-godiary style="cursor:pointer">
       <div class="win-h">Питание · сегодня<span class="right">XP за день: <b class="${d.xp < 0 ? "bad" : ""}">${d.xp >= 0 ? "+" : ""}${d.xp}</b></span></div>
       <div class="nut"><div><div class="big">${fmtN(r0(s.kcal))}<small>из ${fmtN(t.kcal)} ккал</small></div>
         <div class="mac">${[["Б", s.p, t.p], ["Ж", s.f, t.f], ["У", s.c, t.c]].map(([n, v, g]) => `<div>${n} <b>${r0(v)}</b> г<i style="--w:${clamp(v / (g || 1) * 100, 0, 100)}%"></i></div>`).join("")}</div></div>
         ${ring(s.kcal, t.kcal)}</div>
     </div>
-    ${questsWin(P, td)}
     ${examWin(P)}
     ${V2 && API_URL && S.player ? gatesWin(P) : ""}
     <div class="qbtns">
@@ -600,7 +618,7 @@ function renderStatus(P) {
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
-  const gd = $app.querySelector("[data-godiary]"); if (gd) gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); };
+  $app.querySelectorAll("[data-godiary]").forEach(gd => gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); });
   bindQuests(P);
   if (V2 && API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
