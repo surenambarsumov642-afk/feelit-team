@@ -17,7 +17,7 @@ const FORMATS = ["Смотреть видео", "Читать", "Сразу пр
 const TONES = [["hard", "Жёстко, без жалости"], ["strict", "Строго, но с поддержкой"], ["soft", "Мягко"]];
 const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 const BOSS_DAYS = [7, 14, 21, 28];
-const XPS = { task: 40, late: 20, miss: -40 };
+const XPS = { task: 40, late: 20, miss: 0 }; // без штрафов: пропуск не отнимает опыт, долг можно закрыть позже
 const REVIEW_STEPS = [1, 3, 7, 14, 30];
 
 /* ============================ утилиты ============================ */
@@ -69,13 +69,16 @@ export function skillXpByDate() {
       const d = dateOf(sk, n);
       if (d >= td || isRest(sk, n)) continue;
       const t = sk.tasks[n];
-      if (!t || !t.done || (t.at && t.at > d)) add(X.addDays(d, 1) <= td ? X.addDays(d, 1) : d, XPS.miss);
+      if (XPS.miss && (!t || !t.done || (t.at && t.at > d))) add(X.addDays(d, 1) <= td ? X.addDays(d, 1) : d, XPS.miss);
     }
   }
   return out;
 }
 /** Позорный титул: пропуск задания навыка за последние 7 дней. */
 export function shameTitle() {
+  return null; // титул «Беглец» убран: наказание за пропуски выжигает мотивацию
+}
+function _shameTitleOld() {
   const td = X.today();
   for (const sk of X.S().skills || []) {
     if (!sk.start || !sk.plan) continue;
@@ -630,7 +633,7 @@ function renderActive($app, sk) {
       <div class="small mb">Экзамен по пройденному. Результат идёт в процент освоения.</div>
       <button class="btn violet block" data-boss="${b.w}">Вступить в бой</button></div>`).join("")}
     ${debts.length ? `<div class="win" style="border-color:rgba(255,77,109,.4)"><div class="win-h bad">Долги</div>
-      <div class="tiny muted mb">Пропущенные дни. Штраф уже получен, но задание можно сдать (+${XPS.late} XP).</div>
+      <div class="tiny muted mb">Пропущенные дни. Задание можно сдать и сейчас (+${XPS.late} XP).</div>
       ${debts.map(m => `<div class="recent" data-submit="${m}"><span class="nm">День ${m}: ${e(planDay(sk, m).title)}</span><span class="muted">›</span></div>`).join("")}</div>` : ""}
     <div class="win"><div class="win-h">Повторение<span class="right">${due.length} к повтору</span></div>
       ${due.length ? `<button class="btn ghost block" id="rv-go">Повторить (${due.length})</button>` : `<div class="tiny muted">Сегодня повторять нечего. Карточки появляются после сданных заданий.</div>`}</div>

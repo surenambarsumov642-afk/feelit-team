@@ -195,7 +195,8 @@ function workoutDone(d, lvl) {
 function workoutVerified(d, lvl) { const v = vDay(d); return EX.filter(ex => CAM.includes(ex.id)).every(ex => (v[ex.id] || 0) >= exTarget(ex, lvl, d)); }
 
 /* ============================ прогресс «Системы» ============================ */
-const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50, penMiss: -30, penOver: -20 };
+const XP = { entry: 5, entryCap: 10, log: 30, protein: 40, norm: 60, workout: 80, allBonus: 50 };
+const SHIELD_MAX = 3;
 const QUESTS = [
   { id: "workout", name: "Тренировка Системы", xp: XP.workout },
   { id: "log", name: "Вести учёт питания", xp: XP.log },
@@ -234,7 +235,7 @@ function computeProgress() {
   const byDate = {};
   for (const e of S.entries) (byDate[e.date] ||= []).push(e);
   let xp = 0, cur = 0, longest = 0, proteinDays = 0, normDays = 0, perfectDays = 0, photos = 0, entries = S.entries.length, workoutDays = 0;
-  let lvl = 1, lvlRest = 0;
+  let lvl = 1, lvlRest = 0, shields = 1, run = 0;
   const skXP = skillXpByDate();
   for (const a of S.adj || []) skXP[a.date] = (skXP[a.date] || 0) + a.xp;
   const days = {};
@@ -255,17 +256,16 @@ function computeProgress() {
     if (q.protein.done) proteinDays++;
     if (q.workout.done) workoutDays++;
     if (q.norm.done) normDays++;
-    let penalty = null;
-    if (closed && d >= start) {
-      if (s.count === 0 && !q.workout.done) { penalty = { xp: XP.penMiss, why: "День пропущен — ни одной записи" }; }
-      else if (s.kcal > t.kcal * 1.15) { penalty = { xp: XP.penOver, why: `Превышение нормы: ${r0(s.kcal)} из ${t.kcal} ккал` }; }
-    }
-    if (penalty) dx += penalty.xp;
+    // Штрафов XP больше нет: пропуск не отнимает опыт, а серию спасает щит (см. ниже).
+    const penalty = null;
     xp = Math.max(0, xp + dx);
     lvl = 1; lvlRest = xp; while (lvlRest >= xpNeed(lvl)) { lvlRest -= xpNeed(lvl); lvl++; }
     const active = s.count > 0 || q.workout.done || (skXP[d] || 0) > 0;
-    if (active) { cur++; longest = Math.max(longest, cur); } else if (closed) cur = 0;
-    days[d] = { s, q, xp: dx, penalty, all, lvl: dayLvl, doneCount: doneIds.length };
+    // Щиты серии: 1 в подарок, +1 за каждые 7 активных дней подряд (максимум 3). Пропущенный день съедает щит, серия не обнуляется.
+    let shielded = false;
+    if (active) { cur++; run++; longest = Math.max(longest, cur); if (run % 7 === 0) shields = Math.min(SHIELD_MAX, shields + 1); }
+    else if (closed) { if (shields > 0 && cur > 0) { shields--; shielded = true; } else { cur = 0; } run = 0; }
+    days[d] = { s, q, xp: dx, penalty, all, lvl: dayLvl, doneCount: doneIds.length, shielded };
   }
   let level = 1, rest = xp;
   while (rest >= xpNeed(level)) { rest -= xpNeed(level); level++; }
@@ -277,7 +277,7 @@ function computeProgress() {
     dis: 10 + normDays,
     per: 10 + Math.floor(photos / 3),
   };
-  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays, mapped: S.mapped || 0 };
+  return { xp, level, into: rest, need: xpNeed(level), rank, stats, streak: cur, shields, longest, proteinDays, normDays, perfectDays, photos, entries, days, weights: S.weights.length, workoutDays, mapped: S.mapped || 0 };
 }
 
 /* ============================ достижения ============================ */
@@ -371,9 +371,9 @@ function checkEvents(P) {
   }
   for (let i = 1; i <= 3; i++) {
     const d = addDays(td, -i), dd = P.days[d];
-    if (dd && dd.penalty && !seen.penalties.includes(d)) {
+    if (dd && dd.shielded && !seen.penalties.includes(d)) {
       seen.penalties.push(d); changed = true;
-      system({ kind: "penalty", tag: "ШТРАФ", head: humanDate(d), body: `${dd.penalty.why}\n${dd.penalty.xp} XP\n\n${phrase("penalty")}`, btn: "Понятно" });
+      system({ kind: "info", tag: "ЩИТ СРАБОТАЛ", head: "🛡 Серия спасена", body: `${humanDate(d)} ты пропустил, но щит удержал серию: ${P.streak} дн.\nОсталось щитов: ${P.shields}.\n\nЩиты копятся за каждые 7 дней подряд. Не пропускай два дня — щит может закончиться.`, btn: "Продолжить" });
     }
   }
   seen.penalties = seen.penalties.filter(d => d >= addDays(td, -10));
@@ -407,7 +407,7 @@ function syncSeenSilently() {
   const P = computeProgress();
   S.seen.level = P.level;
   S.seen.ach = ACH.filter(a => a.ok(P)).map(a => a.id);
-  S.seen.penalties = Object.keys(P.days).filter(d => P.days[d].penalty);
+  S.seen.penalties = Object.keys(P.days).filter(d => P.days[d].shielded);
   save();
 }
 
@@ -526,7 +526,7 @@ function hunterCard(P, full) {
       </div>
     </div>
     ${full ? `<div class="grid3 mt center small">
-      <div><div class="sys-font" style="font-size:18px;color:#fff">${P.streak}</div><div class="muted tiny">серия дней</div></div>
+      <div><div class="sys-font" style="font-size:18px;color:#fff">${P.streak} <span style="font-size:13px;opacity:.8">🛡${P.shields}</span></div><div class="muted tiny">серия · щиты</div></div>
       <div><div class="sys-font" style="font-size:18px;color:#fff">${P.perfectDays}</div><div class="muted tiny">идеальных дней</div></div>
       <div><div class="sys-font" style="font-size:18px;color:#fff">${P.xp}</div><div class="muted tiny">всего XP</div></div>
     </div>` : ""}
@@ -791,7 +791,7 @@ function renderAbout(P) {
       <div class="kv"><span class="muted">Игроков в Системе</span><b>${board ? board.length : "—"}</b></div>
     </div>
     <div class="win"><div class="win-h">Правила Системы</div>
-      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, испытания, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Штрафы: день без записей и тренировки −30, перебор калорий больше 115% −20.`)}
+      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, испытания, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Опыт за пропуски не отнимается. Серию дней берегут щиты: 1 в начале и +1 за каждые 7 дней подряд (до 3). Пропустил день — щит сгорает, серия живёт.`)}
       ${sec("Ежедневные квесты", `Тренировка Системы (+80), учёт питания (+30), норма калорий 85–105% (+60). Все три — бонус +50 и «идеальный день». Нормы тренировки растут с уровнем.`)}
       ${sec("Ранги и экзамены", `Уровень открывает экзамен, ранг даётся только после сдачи. E→D 7 дней, D→C 14, C→B 21, B→A 30, A→S 45, S→Национальный уровень 60. Каждый день — все квесты, усиленная тренировка и честные отметки. Одна ошибка — провал и пересдача через несколько дней.`)}
       ${sec("Испытания недели и рейды", `Каждую неделю у всех открываются одни и те же испытания разной сложности и рейд. Прошёл — XP и редкий титул. Взялся и не прошёл до воскресенья — штраф. В рейде проигрывают все, если не справится хоть один.`)}
