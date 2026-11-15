@@ -1,6 +1,7 @@
 // ARISE — «Врата недели»: каждую неделю у всех открываются одни и те же Врата (по номеру недели) + один рейд для команды.
 // Прогресс считается по дням недели после входа. Награда — XP и редкий титул, провал — «Прорыв подземелья» (штраф).
 
+import { rankName, rankMono } from "./exams.js";
 let X; // { S(), save, api, esc, today, addDays, parseD, system, toast, render, postEvent, sheet }
 export function initGates(ctx) { X = ctx; }
 
@@ -80,9 +81,9 @@ function reward(g, run) {
   run.status = "done"; run.doneAt = X.today();
   S.adj.push({ date: X.today(), xp: g.xp, why: `Врата: ${g.n}` });
   const tid = "gate_" + g.id;
-  if (!S.extraTitles.some(t => t.id === tid)) S.extraTitles.push({ id: tid, ic: g.rank, n: g.raid ? `Рейдер: ${g.n.replace("Рейд: ", "")}` : `Покоритель: ${g.n}`, d: `Врата ранга ${g.rank}: ${g.d}` });
+  if (!S.extraTitles.some(t => t.id === tid)) S.extraTitles.push({ id: tid, ic: rankMono(g.rank), n: g.raid ? `Рейдер: ${g.n.replace("Рейд: ", "")}` : `Покоритель: ${g.n}`, d: `Врата уровня «${rankName(g.rank)}»: ${g.d}` });
   X.system({ kind: "achv", tag: g.raid ? "РЕЙД ЗАВЕРШЁН" : "ВРАТА ЗАКРЫТЫ", head: g.n, body: `+${g.xp} XP\nНовый титул: «${g.raid ? "Рейдер" : "Покоритель"}: ${g.n.replace("Рейд: ", "")}»` });
-  X.postEvent("gate", `${g.raid ? "завершил рейд" : "закрыл Врата ранга " + g.rank} «${g.n.replace("Рейд: ", "")}»`);
+  X.postEvent("gate", `${g.raid ? "завершил рейд" : "закрыл Врата уровня «" + rankName(g.rank) + "»"} «${g.n.replace("Рейд: ", "")}»`);
 }
 function fail(g, run) {
   const S = X.S(), pen = -Math.round(g.xp / 2);
@@ -118,7 +119,7 @@ export function gatesWin(P) {
     const st = !run ? "new" : run.status === "done" ? "done" : run.status === "failed" ? "failed" : "active";
     const canCheck = run && st === "active" && (g.type === "check" || g.type === "combo") && !(run.checks || []).includes(td);
     return `<div class="gate-row ${st}">
-      <div class="rank-mini rank-${g.rank}">${g.rank}</div>
+      <div class="rank-mini rank-${g.rank}">${rankMono(g.rank)}</div>
       <div class="grow" style="min-width:0">
         <div class="gr-n">${X.esc(g.n)}</div>
         <div class="tiny muted">${X.esc(g.d)} · +${g.xp} XP</div>
@@ -138,7 +139,7 @@ export function bindGates($app, P) {
   const S = X.S(), td = X.today(), list = weekGates(weekStart(td));
   $app.querySelectorAll("[data-gjoin]").forEach(b => b.onclick = () => {
     const g = list.find(x => x.key === b.dataset.gjoin);
-    X.sheet(`<div class="center"><div class="rank-mini rank-${g.rank}" style="margin:0 auto;width:48px;height:48px;font-size:24px">${g.rank}</div>
+    X.sheet(`<div class="center"><div class="rank-mini rank-${g.rank}" style="margin:0 auto;width:48px;height:48px;font-size:24px">${rankMono(g.rank)}</div>
         <div class="sys-font mt" style="font-size:19px;color:#fff">${X.esc(g.n)}</div>
         <div class="small mt">${X.esc(g.d)}</div>
         <div class="notice mt" style="text-align:left">Награда: +${g.xp} XP и титул.<br>Если до воскресенья не закроешь — прорыв: ${-Math.round(g.xp / 2)} XP.${g.raid ? "<br>Рейд: проваливают все, если не справится хоть один участник." : ""}${g.type !== "auto" ? "<br>Каждый выполненный день отмечай кнопкой «Сегодня ✓» — честно." : "<br>Дни засчитываются автоматически."}</div>
@@ -149,7 +150,7 @@ export function bindGates($app, P) {
         S.gates[g.key] = { joined: td, checks: [], status: "active", progress: 0 };
         X.save(); close();
         if (g.raid) syncRaid(g, S.gates[g.key]);
-        X.postEvent("gate", `вошёл во Врата ранга ${g.rank} «${g.n.replace("Рейд: ", "")}»`);
+        X.postEvent("gate", `вошёл во Врата «${g.n.replace("Рейд: ", "")}»`);
         X.system({ tag: "ВРАТА ОТКРЫТЫ", head: g.n, body: "Пути назад нет. Закрой Врата до конца недели." });
         X.render();
       };

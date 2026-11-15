@@ -46,7 +46,7 @@ export function showIntro(o) {
       await type($("iq"), phrase("intro"), 38);
       await wait(skip ? 0 : 450);
       $("ip").innerHTML = o.first ? `<b>Новый игрок обнаружен</b>` :
-        `ИГРОК <b>${o.name}</b> · LV. <b>${o.level}</b> · РАНГ <b>${o.rank}</b><div class="intro-rn">${o.rankName.toUpperCase()}</div>`;
+        `ИГРОК <b>${o.name}</b> · LV. <b>${o.level}</b> <div class="intro-rn">${o.rank.toUpperCase()}</div>`;
       ov.classList.add("ready");
     })();
   });

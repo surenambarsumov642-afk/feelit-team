@@ -3,7 +3,7 @@ import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
 import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, openWorldView } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
-import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE } from "./exams.js";
+import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE, RANKS, RANK_LV, rankName, rankMono, rankLabel, rankGlyph } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
 import { showIntro } from "./intro.js";
 import { initWorld, renderWorld, worldDue } from "./world.js";
@@ -285,7 +285,7 @@ const ACH = [
   { id: "eye", r: 1, ic: "👁", n: "Око Системы", d: "Распознать еду по фото", ok: P => P.photos >= 1 },
   { id: "train1", r: 1, ic: "🩸", n: "Первая кровь", d: "Выполнить тренировку Системы", ok: P => P.workoutDays >= 1 },
   { id: "perfect1", r: 1, ic: "✦", n: "Безупречный день", d: "Выполнить все квесты за день", ok: P => P.perfectDays >= 1 },
-  { id: "streak3", r: 1, ic: "🔥", n: "Искра", d: "3 дня подряд с записями", ok: P => P.longest >= 3 },
+  { id: "streak3", r: 1, ic: "🔥", n: "Разгорелся", d: "3 дня подряд с записями", ok: P => P.longest >= 3 },
   { id: "weigh", r: 1, ic: "⚙", n: "Взгляд в зеркало", d: "Записать вес 5 раз", ok: P => P.weights >= 5 },
   { id: "mapper1", r: 1, ic: "▦", n: "Первооткрыватель", d: "Добавить продукт в общую базу", ok: P => P.mapped >= 1 },
   { id: "streak7", r: 2, ic: "🗡", n: "Неделя без слабости", d: "7 дней подряд с записями", ok: P => P.longest >= 7 },
@@ -294,7 +294,7 @@ const ACH = [
   { id: "streak14", r: 2, ic: "☄", n: "Пламя не гаснет", d: "14 дней подряд с записями", ok: P => P.longest >= 14 },
   { id: "lvl25", r: 2, ic: "⬆", n: "Восходящий", d: "Достичь 25 уровня", ok: P => P.level >= 25 },
   { id: "scribe", r: 2, ic: "📜", n: "Летописец Системы", d: "100 записей", ok: P => P.entries >= 100 },
-  { id: "rankD", r: 2, ic: "D", n: "Охотник", d: "Сдать экзамен на ранг D", ok: P => rankIdx(P.rank) >= 1 },
+  { id: "rankD", r: 2, ic: "Б", n: "Боец", d: "Получить ранг «Боец»", ok: P => rankIdx(P.rank) >= 1 },
   { id: "norm14", r: 3, ic: "⚖", n: "Мастер баланса", d: "14 дней в норме калорий", ok: P => P.normDays >= 14 },
   { id: "perfect7", r: 3, ic: "♛", n: "Безупречный", d: "7 идеальных дней", ok: P => P.perfectDays >= 7 },
   { id: "perfect14", r: 3, ic: "🌙", n: "Дисциплина клинка", d: "14 идеальных дней", ok: P => P.perfectDays >= 14 },
@@ -302,19 +302,19 @@ const ACH = [
   { id: "eye50", r: 3, ic: "◎", n: "Всевидящее Око", d: "50 распознанных фото", ok: P => P.photos >= 50 },
   { id: "mapper10", r: 3, ic: "🗺", n: "Картограф", d: "Добавить 10 продуктов в общую базу", ok: P => P.mapped >= 10 },
   { id: "entries500", r: 3, ic: "📖", n: "Хранитель хроник", d: "500 записей", ok: P => P.entries >= 500 },
-  { id: "rankC", r: 3, ic: "C", n: "Истребитель", d: "Сдать экзамен на ранг C", ok: P => rankIdx(P.rank) >= 2 },
-  { id: "rankB", r: 3, ic: "B", n: "Элита Гильдии", d: "Сдать экзамен на ранг B", ok: P => rankIdx(P.rank) >= 3 },
+  { id: "rankC", r: 3, ic: "В", n: "Воин", d: "Получить ранг «Воин»", ok: P => rankIdx(P.rank) >= 2 },
+  { id: "rankB", r: 3, ic: "М", n: "Мастер", d: "Получить ранг «Мастер»", ok: P => rankIdx(P.rank) >= 3 },
   { id: "streak30", r: 4, ic: "⛓", n: "Несломленный", d: "30 дней подряд с записями", ok: P => P.longest >= 30 },
   { id: "streak60", r: 4, ic: "🜂", n: "Воля из стали", d: "60 дней подряд с записями", ok: P => P.longest >= 60 },
   { id: "train100", r: 4, ic: "⚚", n: "Армия одного", d: "100 тренировок Системы", ok: P => P.workoutDays >= 100 },
   { id: "lvl50", r: 4, ic: "✷", n: "За пределом человека", d: "Достичь 50 уровня", ok: P => P.level >= 50 },
-  { id: "rankA", r: 4, ic: "A", n: "Гроза Подземелий", d: "Сдать экзамен на ранг A", ok: P => rankIdx(P.rank) >= 4 },
+  { id: "rankA", r: 4, ic: "Ч", n: "Чемпион", d: "Получить ранг «Чемпион»", ok: P => rankIdx(P.rank) >= 4 },
   { id: "monarch", r: 5, ic: "☠", n: "Монарх Теней", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
   { id: "streak100", r: 5, ic: "∞", n: "Бессмертный", d: "100 дней подряд с записями", ok: P => P.longest >= 100 },
   { id: "perfect100", r: 5, ic: "👑", n: "Абсолют", d: "100 идеальных дней", ok: P => P.perfectDays >= 100 },
   { id: "lvl100", r: 5, ic: "✹", n: "Тот, кто превзошёл Систему", d: "Достичь 100 уровня", ok: P => P.level >= 100 },
-  { id: "rankS", r: 5, ic: "S", n: "Сильнейший", d: "Сдать экзамен на ранг S", ok: P => rankIdx(P.rank) >= 5 },
-  { id: "rankN", r: 5, ic: "N", n: "Опора Нации", d: "Сдать экзамен национального уровня", ok: P => rankIdx(P.rank) >= 6 },
+  { id: "rankS", r: 5, ic: "Т", n: "Титан", d: "Получить ранг «Титан»", ok: P => rankIdx(P.rank) >= 5 },
+  { id: "rankN", r: 5, ic: "Л", n: "Легенда", d: "Пройти последний экзамен и стать Легендой", ok: P => rankIdx(P.rank) >= 6 },
 ];
 
 /* ============================ окна «Системы» ============================ */
@@ -379,7 +379,7 @@ function checkEvents(P) {
     const oldRank = seen.rank || "E";
     system({ kind: "levelup", tag: "УРОВЕНЬ ПОВЫШЕН", head: `${P.level}`, sub: `LV ${seen.level} → LV ${P.level}`,
       body: phrase("levelup") + "\n\nНовые требования Системы. Новая сила." });
-    postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга ${P.rank}` : `достиг ${P.level} уровня`);
+    postEvent("level", P.rank !== oldRank ? `достиг ${P.level} уровня и ранга «${rankName(P.rank)}»` : `достиг ${P.level} уровня`);
     seen.level = P.level; seen.rank = P.rank; changed = true;
   } else if (P.level < seen.level) { seen.level = P.level; changed = true; }
   if (P.rank !== (seen.rank || "E")) { seen.rank = P.rank; changed = true; }
@@ -398,7 +398,7 @@ function greet(P) {
   S.seen.greet = td; save();
   const sk = skillTodayState();
   system({ kind: missed ? "info" : "quest", tag: "СИСТЕМА", head: missed ? "Ты вернулся" : "Новый день",
-    body: `${missed ? phrase("comeback") : phrase("morning")}\n\n[ЕЖЕДНЕВНЫЙ КВЕСТ]\n${QUESTS.map(q => "◇ " + q.name).join("\n")}${sk === "todo" ? "\n◇ Задание навыка" : ""}${S.exam && S.exam.status === "active" ? "\n\n⚔ Идёт экзамен на ранг " + S.exam.to + ". Ни одной ошибки." : ""}`, btn: "Принять" });
+    body: `${missed ? phrase("comeback") : phrase("morning")}\n\n[ЕЖЕДНЕВНЫЙ КВЕСТ]\n${QUESTS.map(q => "◇ " + q.name).join("\n")}${sk === "todo" ? "\n◇ Задание навыка" : ""}${S.exam && S.exam.status === "active" ? "\n\n⚔ Идёт экзамен на ранг «" + rankName(S.exam.to) + "». Ни одной ошибки." : ""}`, btn: "Принять" });
 }
 
 function syncSeenSilently() {
@@ -480,38 +480,44 @@ function statusTop(P) {
     <div class="daily-word"><span class="tag-sys">Слово Системы</span><div>«${esc(dailyPhrase(td))}»</div></div>
     <div class="st-hero" data-hunter></div>
     <div class="st-name" data-hunter><span class="n">${esc(S.profile.name)}</span><span class="lv"><small>LV</small>${P.level}</span></div>
-    <div class="st-chips" data-hunter><span class="chip-g"><span class="rk">${P.rank}</span>${esc(RANK_NAMES[P.rank])}</span>
+    <div class="st-chips" data-hunter><span class="chip-g rkc rank-${P.rank}">${rankGlyph(P.rank, 18)}${esc(rankLabel(P.rank, P.level))}</span>
       ${shame ? `<span class="chip-g" style="color:#ff9aaa"><span class="dm" style="background:#ff4d6d"></span>«${esc(shame)}»</span>` :
         t ? `<span class="chip-g ${rar && rar.id === "legend" ? "gold" : ""}"><span class="dm" ${rar ? `style="background:${rar.c}"` : ""}></span>«${esc(t.n)}»</span>` : ""}</div>
     <div class="st-xp"><div class="bar"><i style="width:${(P.into / P.need * 100).toFixed(1)}%"></i></div><span><b>${fmtN(P.into)}</b> / ${fmtN(P.need)} XP</span></div>
   </div>`;
 }
 const RANK_ORDER_ALL = ["E", "D", "C", "B", "A", "S", "N"];
-/** Эмблема ранга: шестигранник с буквой и кольцо рангов E…N с прогрессом до следующего. */
+/** Эмблема ранга: пламя ранга в шестиграннике, кольцо из 7 рангов и прогресс до следующего экзамена. */
 function rankEmblem(P) {
-  const i = RANK_ORDER_ALL.indexOf(P.rank), R = 70, cx = 84, cy = 84;
-  const pt = k => { const a = -Math.PI / 2 + k / 7 * Math.PI * 2; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
-  const nextLv = [10, 20, 35, 50, 70, 85, 999][i] || 999, prevLv = [0, 10, 20, 35, 50, 70, 85][i] || 0;
+  const i = RANK_ORDER_ALL.indexOf(P.rank), R = 70, cx = 84, cy = 84, RK = RANKS[P.rank];
+  const nextLv = RANK_LV[i + 1] || 999, prevLv = RANK_LV[i] || 0;
   const frac = Math.max(0, Math.min(1, (P.level - prevLv) / Math.max(1, nextLv - prevLv)));
   const a0 = -Math.PI / 2 + i / 7 * Math.PI * 2, a1 = a0 + frac / 7 * Math.PI * 2;
+  const pt = k => { const a = -Math.PI / 2 + k / 7 * Math.PI * 2; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
   const arc = `M${cx + R * Math.cos(a0)} ${cy + R * Math.sin(a0)} A${R} ${R} 0 0 1 ${cx + R * Math.cos(a1)} ${cy + R * Math.sin(a1)}`;
-  const hex = [0, 1, 2, 3, 4, 5].map(k => { const a = -Math.PI / 2 + k * Math.PI / 3; return `${cx + 38 * Math.cos(a)},${cy + 38 * Math.sin(a)}`; }).join(" ");
-  return `<svg class="emblem" viewBox="0 0 168 168"><defs><linearGradient id="emg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6f8cff" stop-opacity=".55"/><stop offset="1" stop-color="#2a2f7a" stop-opacity=".55"/></linearGradient></defs>
+  const hex = [0, 1, 2, 3, 4, 5].map(k => { const a = -Math.PI / 2 + k * Math.PI / 3; return `${cx + 40 * Math.cos(a)},${cy + 40 * Math.sin(a)}`; }).join(" ");
+  const tier = rankLabel(P.rank, P.level).split(" ")[1] || "";
+  const nx = RANK_ORDER_ALL[i + 1];
+  return `<svg class="emblem" viewBox="0 0 168 168"><defs>
+      <linearGradient id="emg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${RK.c1}" stop-opacity=".38"/><stop offset="1" stop-color="${RK.c2}" stop-opacity=".42"/></linearGradient>
+      <linearGradient id="emf" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${RK.c2}"/><stop offset="1" stop-color="${RK.c1}"/></linearGradient></defs>
     <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1.5"/>
-    <path d="${arc}" fill="none" stroke="#9fc0ff" stroke-width="2.5" stroke-linecap="round" style="filter:drop-shadow(0 0 5px #7f9cff)"/>
-    ${RANK_ORDER_ALL.map((r, k) => { const [x, y] = pt(k); return `<circle cx="${x}" cy="${y}" r="9" fill="${k === i ? "#5b7cff" : "rgba(10,12,30,.9)"}" stroke="${k <= i ? "#9fc0ff" : "rgba(255,255,255,.2)"}"/><text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9.5" font-weight="600" fill="${k <= i ? "#fff" : "rgba(255,255,255,.45)"}">${r}</text>`; }).join("")}
-    <polygon points="${hex}" fill="url(#emg)" stroke="rgba(190,205,255,.75)" stroke-width="1.2" style="filter:drop-shadow(0 0 14px rgba(110,140,255,.7))"/>
-    <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="44" font-weight="200" fill="#fff">${P.rank}</text></svg>
-    <div class="emb-n">${i >= 6 ? "вершина" : frac >= 1 ? `экзамен на ${RANK_ORDER_ALL[i + 1]}` : `${Math.round(frac * 100)}% до ${RANK_ORDER_ALL[i + 1]}`}</div>`;
+    <path d="${arc}" fill="none" stroke="${RK.c1}" stroke-width="2.5" stroke-linecap="round" style="filter:drop-shadow(0 0 5px ${RK.c2})"/>
+    ${RANK_ORDER_ALL.map((r, k) => { const [x, y] = pt(k), c = RANKS[r]; return `<circle cx="${x}" cy="${y}" r="${k === i ? 7 : 5}" fill="${k <= i ? c.c1 : "rgba(10,12,30,.9)"}" stroke="${k <= i ? c.c2 : "rgba(255,255,255,.22)"}" stroke-width="1.5" ${k === i ? `style="filter:drop-shadow(0 0 6px ${c.c1})"` : ""}/>`; }).join("")}
+    <polygon points="${hex}" fill="url(#emg)" stroke="${RK.c1}" stroke-opacity=".7" stroke-width="1.2" style="filter:drop-shadow(0 0 14px ${RK.c2})"/>
+    <g transform="translate(${cx - 19} ${cy - 27}) scale(1.6)"><path fill="url(#emf)" d="M12 2c1 3.2 4.6 5.4 4.6 10.2A4.6 4.6 0 0 1 12 17a4.6 4.6 0 0 1-4.6-4.8c0-2 1-3.4 2.2-4.6.2 1.6 1 2.6 2 3C11 8.2 11.2 4.8 12 2Z"/><path fill="${RK.c1}" opacity=".6" d="M12 22c-4.4 0-7-2.6-7-5.6 0-.9.2-1.7.6-2.5.6 2.9 3.3 4.9 6.4 4.9s5.8-2 6.4-4.9c.4.8.6 1.6.6 2.5C19 19.4 16.4 22 12 22Z"/></g>
+    ${tier ? `<text x="${cx}" y="${cy + 33}" text-anchor="middle" font-size="11" font-weight="700" letter-spacing="2" fill="#fff" opacity=".85">${tier}</text>` : ""}</svg>
+    <div class="emb-rank" style="color:${RK.c1}">${esc(rankLabel(P.rank, P.level)).toUpperCase()}</div>
+    <div class="emb-n">${i >= 6 ? "вершина пути" : frac >= 1 ? `доступен экзамен на «${rankName(nx)}»` : `${Math.round(frac * 100)}% до ранга «${rankName(nx)}»`}</div>`;
 }
 function hunterCard(P, full) {
   const t = titleById(S.title);
   return `<div class="win" ${full ? "" : 'data-hunter style="cursor:pointer"'}>${full ? "" : '<span class="hunter-more">профиль ›</span>'}
     <div class="hunter">
-      ${full ? `<div class="emb-w">${rankEmblem(P)}</div>` : `<div class="rank-badge rank-${P.rank}"><span>${P.rank}</span></div>`}
+      ${full ? `<div class="emb-w">${rankEmblem(P)}</div>` : `<div class="rank-badge rank-${P.rank}">${rankGlyph(P.rank, 40)}</div>`}
       <div class="grow">
         <div class="name">${esc(S.profile.name)}</div>
-        <div class="title">${shameTitle() ? '<span class="bad">«Беглец»</span>' : t ? "«" + esc(t.n) + "»" : esc(RANK_NAMES[P.rank])}</div>
+        <div class="title">${shameTitle() ? '<span class="bad">«Беглец»</span>' : t ? "«" + esc(t.n) + "»" : esc(rankLabel(P.rank, P.level))}</div>
         <div class="row mt" style="margin-top:8px"><span class="lvl">LV. ${P.level}</span>
           <span class="tiny muted" style="margin-left:auto">${P.into} / ${P.need} XP</span></div>
         <div class="bar" style="margin-top:5px"><i style="width:${(P.into / P.need * 100).toFixed(1)}%"></i></div>
@@ -925,7 +931,7 @@ function renderRating(P) {
       const badges = champs ? ["week", "month", "year"].filter(k => champs[k] && champs[k].id === u.id).map(k => CHAMP[k][1]).join("") : "";
       return `<div class="lb ${u.id === me ? "me" : ""}" ${u.id !== me ? `data-duel="${u.id}" data-name="${esc(u.name)}"` : ""}>
         <div class="pos ${i < 3 ? "top" + (i + 1) : ""}">${i + 1}</div>
-        <div class="rank-mini rank-${esc(u.rank)}">${esc(u.rank)}</div>
+        <div class="rank-mini rank-${esc(u.rank)}" title="${esc(rankName(u.rank))}">${esc(rankMono(u.rank))}</div>
         <div class="grow" style="min-width:0">
           <div class="nm">${badges ? `<span class="champ-b">${badges}</span> ` : ""}${esc(u.name)}${u.id === me ? ' <span class="tiny muted">(ты)</span>' : ""}</div>
           <div class="tiny muted ell">${u.title ? "«" + esc(u.title) + "» · " : ""}LV. ${u.level} · ${boardPeriod === "all" ? u.xp + " XP" : `<b style="color:var(--blue2)">${u.season_xp ?? 0} XP</b> за сезон`}</div>
@@ -944,7 +950,7 @@ function renderRating(P) {
   } else if (rtab === "feed") {
     body = `<div class="win"><div class="win-h">Лента охотников</div>
       ${!feed ? `<div class="center"><span class="spinner"></span></div>` : feed.length ? feed.map(ev => `<div class="feed-i">
-        <div class="rank-mini rank-${esc((ev.players && ev.players.rank) || "E")}">${esc((ev.players && ev.players.rank) || "E")}</div>
+        <div class="rank-mini rank-${esc((ev.players && ev.players.rank) || "E")}">${esc(rankMono((ev.players && ev.players.rank) || "E"))}</div>
         <div class="grow"><b>${esc(ev.players ? ev.players.name : "?")}</b> <span class="small">${esc(ev.text)}</span></div>
         <span class="tiny dim">${ago(ev.created_at)}</span></div>`).join("") : `<div class="empty">Пока тихо. Сделай первый шаг — и он появится здесь.</div>`}</div>`;
   } else {
@@ -1853,8 +1859,8 @@ if (!sessionStorage.getItem("arise-intro")) {
   sessionStorage.setItem("arise-intro", "1");
   introOn = true;
   const P0 = S.profile ? computeProgress() : null;
-  showIntro({ first: !S.profile, name: S.profile ? esc(S.profile.name) : "", level: P0 ? P0.level : 1, rank: P0 ? P0.rank : "E",
-    rankName: P0 ? RANK_NAMES[P0.rank] : "", sound: S.sound !== false })
+  showIntro({ first: !S.profile, name: S.profile ? esc(S.profile.name) : "", level: P0 ? P0.level : 1, rank: P0 ? rankLabel(P0.rank, P0.level) : "",
+    rankName: "", sound: S.sound !== false })
     .then(() => { introOn = false; if (!sysOpen) setTimeout(nextSystem, 350); });
 }
 render();

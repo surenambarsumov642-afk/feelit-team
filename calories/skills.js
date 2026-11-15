@@ -1,6 +1,7 @@
 // ARISE — модуль «Навыки»: интервью → план на 30 дней → ежедневные задания с проверкой → повторение → боссы → финальный проект.
 // Состояние хранится в S.skills (локально + резервная копия на сервере через sync). ИИ — через действие сервера "skill".
 
+import { rankMono } from "./exams.js";
 let X; // контекст из app.js: { S(), save, api, sheet, system, toast, esc, today, addDays, parseD, humanDate, render, num, r0, drawPhoto, API_URL }
 export function initSkills(ctx) { X = ctx; }
 
@@ -167,7 +168,7 @@ function renderGate($app, sk) {
         const hist = done.filter(x => chainOf(x) === chainOf(s) && x !== s).sort((a, b) => (a.level || 1) - (b.level || 1));
         const m = upgradeMode(s);
         return `<div class="sk-chain"><div class="ach got">
-        <div class="ic">${masteryRank(s.mastery)}</div>
+        <div class="ic">${rankMono(masteryRank(s.mastery))}</div>
         <div class="grow"><div class="an">${e(s.plan.skill_name)} · Ур. ${s.level}${s.mode && s.mode !== "upgrade" ? ` <span class="tiny muted">(${MODE_N[s.mode]})</span>` : ""}</div>
           <div class="ad">Освоено на ${s.mastery}% · ${e(s.plan.final_project.title)}</div>
           ${hist.length ? `<div class="tiny dim">${hist.map(h => `Ур. ${h.level}: ${h.mastery}%`).join(" · ")}</div>` : ""}</div></div>
@@ -615,7 +616,7 @@ function renderActive($app, sk) {
     ${sk.level > 1 || finishedSkills().some(x => chainOf(x) === chainOf(sk)) ? `<button class="btn sm block mb" data-world="${chainOf(sk)}">🌍 Выход в мир</button>` : ""}
     <div class="win violet">
       <div class="row"><div class="grow"><div class="tiny muted">Освоение сейчас</div><div class="sys-font" style="font-size:26px;color:#fff">${st.mastery}%</div></div>
-        <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${masteryRank(st.mastery)}</div></div>
+        <div class="rank-mini rank-${masteryRank(st.mastery)}" style="width:40px;height:40px;font-size:20px">${rankMono(masteryRank(st.mastery))}</div></div>
       <div class="bar violet thick mt"><i style="width:${Math.min(n, 30) / 30 * 100}%"></i></div>
       <div class="tiny muted mt">Выполнено ${st.done}/${st.need} · боссы ${st.bossScores.filter(x => x !== null).length}/4 · неделя ${week}: ${e(p.weeks[week - 1] ? p.weeks[week - 1].theme : "")}</div>
       <div class="tiny mt" style="color:var(--violet2)">«${e(p.profile.motivation)}»</div>
