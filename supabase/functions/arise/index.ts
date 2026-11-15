@@ -1,4 +1,4 @@
-// ARISE — серверная функция Supabase.
+// Ingot — серверная функция Supabase.
 // Действия: register, sync, leaderboard, restore, analyze, estimate, skill, rename, barcode*, foods_search и др.
 // ИИ: бесплатно через Groq (текст: gpt-oss-120b, фото: qwen3.8-27b) с запасным Cloudflare Workers AI для фото.
 // Если задан ANTHROPIC_API_KEY — всё идёт через Claude Haiku 5.5.
@@ -223,7 +223,7 @@ function fromOFF(code: string, pr: any) {
 async function offLookup(code: string) {
   try {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_ru,generic_name,generic_name_ru,brands,nutriments,serving_quantity`,
-      { headers: { "User-Agent": "ARISE-calories/1.0 (personal app)" }, signal: AbortSignal.timeout(6000) });
+      { headers: { "User-Agent": "Ingot-app/1.0" }, signal: AbortSignal.timeout(6000) });
     if (!r.ok) return null;
     const d = await r.json();
     return d.status === 1 ? fromOFF(code, d.product) : null;
@@ -425,7 +425,7 @@ const OBJ = (properties: Record<string, unknown>, required = Object.keys(propert
 const ARR = (items: unknown) => ({ type: "ARRAY", items });
 const STR = S_("STRING"), NUM = S_("NUMBER"), BOOL = S_("BOOLEAN");
 
-const MENTOR = `Ты — «Система»: персональный наставник в приложении ARISE (стиль: охотники, ранги, квесты), но прежде всего —
+const MENTOR = `Ты — «Система»: персональный наставник в приложении Ingot (стиль: путь воина, ранги, квесты), но прежде всего —
 опытный практик и преподаватель в теме, которую осваивает человек. Твоя единственная цель — чтобы человек РЕАЛЬНО освоил навык
 за месяц и смог применять его в жизни, а не просто «прошёл курс».
 Принципы: конкретика вместо общих слов; практика каждый день; маленькие шаги с видимым результатом; обратная связь по делу;
@@ -512,7 +512,7 @@ recall — 2 коротких вопроса с ответами по ключе
     temp: 0.4,
     schema: OBJ({ title: STR, intro: STR, questions: ARR(STR), practical: STR }),
     prompt: (c) => `Составь недельный экзамен-«босс» по навыку. Контекст (темы недели, выполненные задания, слабые места): ${JSON.stringify(c)}
-title — пафосное название босса в стиле подземелий (например «Страж Промптов»). intro — 1 фраза вызова.
+title — пафосное название босса в эпичном стиле (например «Страж Промптов»). intro — 1 фраза вызова.
 questions — 4 вопроса на понимание (не на память дословно), с упором на слабые места. practical — 1 практическое задание на 10–20 минут,
 результат которого можно сдать текстом/скриншотом. Сложность — по уровню человека, но чтобы пришлось подумать.`,
   },
@@ -700,7 +700,7 @@ Deno.serve(async (req) => {
         if (!o) return fail("Соперник не найден");
         const { data: ex } = await db.from("duels").select("id").in("status", ["pending", "active"])
           .or(`and(a.eq.${p.id},b.eq.${opp}),and(a.eq.${opp},b.eq.${p.id})`);
-        if (ex && ex.length) return fail("С этим охотником уже есть дуэль");
+        if (ex && ex.length) return fail("С этим игроком уже есть дуэль");
         const { error } = await db.from("duels").insert({ a: p.id, b: opp, metric, stake });
         if (error) return fail("Не удалось создать дуэль", 500);
         await postEvent(p.id, "duel", `вызвал ${o.name} на дуэль`);
@@ -748,7 +748,7 @@ Deno.serve(async (req) => {
         const p = await playerByToken(b.token);
         if (!p) return fail("Неверный код игрока", 401);
         const key = String(b.key ?? "").slice(0, 60);
-        if (!key) return fail("Нет Врат");
+        if (!key) return fail("Нет испытания");
         const status = ["active", "done", "failed"].includes(String(b.status)) ? String(b.status) : "active";
         await db.from("gate_runs").upsert({ gate_key: key, player_id: p.id, status, progress: int(b.progress, 0, 100), updated_at: new Date().toISOString() },
           { onConflict: "gate_key,player_id" });
@@ -860,11 +860,11 @@ Deno.serve(async (req) => {
         const since = new Date(Date.now() - 10 * 60e3).toISOString();
         const { data: ex } = await db.from("live_duels").select("id").in("status", ["pending", "active"]).gte("created_at", since)
           .or(`and(a.eq.${p.id},b.eq.${opp}),and(a.eq.${opp},b.eq.${p.id})`);
-        if (ex && ex.length) return fail("Живая дуэль с этим охотником уже идёт");
+        if (ex && ex.length) return fail("Живая дуэль с этим игроком уже идёт");
         const { data: d, error } = await db.from("live_duels").insert({ a: p.id, b: opp, exercise }).select("id").single();
         if (error) return fail("Не удалось создать дуэль", 500);
         const exn = { push: "отжимания", squat: "приседания", abs: "скручивания" }[exercise];
-        pushTo(opp, "⚡ Живая дуэль", `${p.name} вызывает тебя: ${exn} на 60 секунд. Открой ARISE → Рейтинг → Дуэли.`, "live").catch(() => {});
+        pushTo(opp, "⚡ Живая дуэль", `${p.name} вызывает тебя: ${exn} на 60 секунд. Открой Ingot → Рейтинг → Дуэли.`, "live").catch(() => {});
         return json({ id: d.id });
       }
       case "live_respond": {

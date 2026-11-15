@@ -1,4 +1,4 @@
-// ARISE — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
+// Ingot — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
 import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, openWorldView } from "./skills.js";
@@ -281,7 +281,7 @@ function computeProgress() {
 /* ============================ достижения ============================ */
 // r — редкость: 1 обычный, 2 редкий, 3 эпический, 4 легендарный, 5 мифический
 const ACH = [
-  { id: "awaken", r: 1, ic: "⚡", n: "Пробуждённый", d: "Сделать первую запись", ok: P => P.entries >= 1 },
+  { id: "awaken", r: 1, ic: "⚡", n: "Первый шаг", d: "Сделать первую запись", ok: P => P.entries >= 1 },
   { id: "eye", r: 1, ic: "👁", n: "Око Системы", d: "Распознать еду по фото", ok: P => P.photos >= 1 },
   { id: "train1", r: 1, ic: "🩸", n: "Первая кровь", d: "Выполнить тренировку Системы", ok: P => P.workoutDays >= 1 },
   { id: "perfect1", r: 1, ic: "✦", n: "Безупречный день", d: "Выполнить все квесты за день", ok: P => P.perfectDays >= 1 },
@@ -309,7 +309,7 @@ const ACH = [
   { id: "train100", r: 4, ic: "⚚", n: "Армия одного", d: "100 тренировок Системы", ok: P => P.workoutDays >= 100 },
   { id: "lvl50", r: 4, ic: "✷", n: "За пределом человека", d: "Достичь 50 уровня", ok: P => P.level >= 50 },
   { id: "rankA", r: 4, ic: "Ч", n: "Чемпион", d: "Получить ранг «Чемпион»", ok: P => rankIdx(P.rank) >= 4 },
-  { id: "monarch", r: 5, ic: "☠", n: "Монарх Теней", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
+  { id: "monarch", r: 5, ic: "♛", n: "Несгибаемый", d: "30 идеальных дней", ok: P => P.perfectDays >= 30 },
   { id: "streak100", r: 5, ic: "∞", n: "Бессмертный", d: "100 дней подряд с записями", ok: P => P.longest >= 100 },
   { id: "perfect100", r: 5, ic: "👑", n: "Абсолют", d: "100 идеальных дней", ok: P => P.perfectDays >= 100 },
   { id: "lvl100", r: 5, ic: "✹", n: "Тот, кто превзошёл Систему", d: "Достичь 100 уровня", ok: P => P.level >= 100 },
@@ -775,36 +775,36 @@ function renderAbout(P) {
     <div class="win violet about">
       <div class="win-h">Об авторе</div>
       <div class="about-gate">${'<div class="g-glow"></div><div class="g-core"></div>'}</div>
-      <p>Привет. Я — <b>Сурен</b>, и ARISE я сделал для себя и своих друзей.</p>
+      <p>Привет. Я — <b>Сурен</b>, и Ingot я сделал для себя и своих друзей.</p>
       <p>Я хочу расти: быть сильнее, здоровее, умнее, зарабатывать больше. Но честно — мне не хватало мотивации и дисциплины. Начинаешь с огнём, а через неделю всё сходит на нет. Знакомо?</p>
       <p>Поэтому я построил Систему. Как в Solo Leveling: каждый день — квест, за каждый шаг — опыт, за слабость — штраф, а ранг нужно заслужить. Рядом — друзья, которые видят твой прогресс и не дают остановиться.</p>
-      <p>ARISE не сделает работу за тебя. Он просто не даст забыть, кем ты решил стать.</p>
-      <p class="about-sign">— Сурен, создатель ARISE</p>
+      <p>Ingot не сделает работу за тебя. Он просто не даст забыть, кем ты решил стать.</p>
+      <p class="about-sign">— Сурен, создатель Ingot</p>
     </div>
     <div class="win"><div class="win-h">Факты</div>
       <div class="kv"><span class="muted">Создано</span><b>в 2026 году, в Ташкенте</b></div>
       <div class="kv"><span class="muted">Для кого</span><b>для себя и друзей</b></div>
       <div class="kv"><span class="muted">Цена</span><b>бесплатно и без рекламы</b></div>
       <div class="kv"><span class="muted">Твои данные</span><b>на телефоне + копия на сервере</b></div>
-      <div class="kv"><span class="muted">Охотников в Системе</span><b>${board ? board.length : "—"}</b></div>
+      <div class="kv"><span class="muted">Игроков в Системе</span><b>${board ? board.length : "—"}</b></div>
     </div>
     <div class="win"><div class="win-h">Правила Системы</div>
-      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, Врата, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Штрафы: день без записей и тренировки −30, перебор калорий больше 115% −20.`)}
+      ${sec("Опыт и уровни", `XP дают записи еды (+5, до 10 в день), ежедневные квесты, испытания, дуэли, задания навыка и экзамены. Уровень N→N+1 стоит 100 + 25·(N−1) XP. Штрафы: день без записей и тренировки −30, перебор калорий больше 115% −20.`)}
       ${sec("Ежедневные квесты", `Тренировка Системы (+80), учёт питания (+30), норма калорий 85–105% (+60). Все три — бонус +50 и «идеальный день». Нормы тренировки растут с уровнем.`)}
       ${sec("Ранги и экзамены", `Уровень открывает экзамен, ранг даётся только после сдачи. E→D 7 дней, D→C 14, C→B 21, B→A 30, A→S 45, S→Национальный уровень 60. Каждый день — все квесты, усиленная тренировка и честные отметки. Одна ошибка — провал и пересдача через несколько дней.`)}
-      ${sec("Врата недели и рейды", `Каждую неделю у всех открываются одни и те же Врата рангов E–S и рейд. Закрыл — XP и редкий титул. Вошёл и не закрыл до воскресенья — прорыв подземелья, штраф. В рейде проигрывают все, если не справится хоть один.`)}
-      ${sec("Сезоны и дуэли", `Сезоны: неделя, месяц, год — считается XP за период. Победители: «Охотник недели», «Лорд месяца», «Монарх». Дуэль на 7 дней: XP, дни в норме или тренировки; победитель забирает ставку.`)}
+      ${sec("Испытания недели и рейды", `Каждую неделю у всех открываются одни и те же испытания разной сложности и рейд. Прошёл — XP и редкий титул. Взялся и не прошёл до воскресенья — штраф. В рейде проигрывают все, если не справится хоть один.`)}
+      ${sec("Сезоны и дуэли", `Сезоны: неделя, месяц, год — считается XP за период. Победители: «Огонь недели», «Пламя месяца», «Феникс года». Дуэль на 7 дней: XP, дни в норме или тренировки; победитель забирает ставку.`)}
       ${sec("Навыки", `Интервью → проверка уровня → план на 30 дней. Каждый день — задание, сдача работы и разбор, повторение, босс каждую неделю, финальный проект. Пропуск — −40 XP и титул «Беглец» на неделю.`)}
-      ${sec("Честность", `Многие условия отмечаются вручную. Система доверяет охотникам: обманываешь — обманываешь только себя.`)}
+      ${sec("Честность", `Многие условия отмечаются вручную. Система доверяет игрокам: обманываешь — обманываешь только себя.`)}
     </div>
-    <div class="center tiny dim mb">ARISE · v4.1 · «Ранг не дарят. Ранг подтверждают.»</div>`;
+    <div class="center tiny dim mb">Ingot · v5.0 · «Переплавь усилия в золото»</div>`;
 }
 
 /* ============================ экран: Рейтинг ============================ */
 let board = null, boardErr = null, boardAt = 0, boardPeriod = "week", champs = null;
 let rtab = "board", feed = null, feedAt = 0, duels = null, duelsAt = 0;
 const PERIODS = [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"], ["all", "Всё время"]];
-const CHAMP = { week: ["Охотник недели", "👑"], month: ["Лорд месяца", "♛"], year: ["Монарх", "☠"] };
+const CHAMP = { week: ["Огонь недели", "🔥"], month: ["Пламя месяца", "♛"], year: ["Феникс года", "🦅"] };
 const METRICS = { xp: "больше XP", norm: "больше дней в норме", workout: "больше тренировок" };
 async function loadBoard() {
   try {
@@ -915,7 +915,7 @@ const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); r
 function renderRating(P) {
   if (!API_URL || !S.player) {
     $app.innerHTML = `<div class="screen-title"><h1>Рейтинг</h1></div>
-      <div class="win"><div class="win-h">Сервер не подключён</div><div class="small muted">Рейтинг заработает, когда будет подключён сервер ARISE.</div></div>`;
+      <div class="win"><div class="win-h">Сервер не подключён</div><div class="small muted">Рейтинг заработает, когда будет подключён сервер Ingot.</div></div>`;
     return;
   }
   if (rtab === "board" && ((!board && !boardErr) || Date.now() - boardAt > 60000)) loadBoard();
@@ -942,13 +942,13 @@ function renderRating(P) {
     const ch = champs ? ["week", "month", "year"].filter(k => champs[k]).map(k => `<div class="champ"><span>${CHAMP[k][1]}</span><div><div class="tiny muted">${CHAMP[k][0]}</div><b>${esc(champs[k].name)}</b></div></div>`).join("") : "";
     body = `<div class="seg mb">${PERIODS.map(([k, n]) => `<button data-per="${k}" class="${boardPeriod === k ? "on" : ""}">${n}</button>`).join("")}</div>
       ${ch ? `<div class="champs mb">${ch}</div>` : ""}
-      <div class="win"><div class="win-h">${boardPeriod === "all" ? "Таблица охотников" : "Сезон: " + PERIODS.find(p => p[0] === boardPeriod)[1].toLowerCase()}<span class="right">по XP</span></div>
+      <div class="win"><div class="win-h">${boardPeriod === "all" ? "Таблица игроков" : "Сезон: " + PERIODS.find(p => p[0] === boardPeriod)[1].toLowerCase()}<span class="right">по XP</span></div>
         ${boardErr ? `<div class="small bad">${esc(boardErr)}</div>` : !board ? `<div class="center"><span class="spinner"></span></div>` : rows || `<div class="empty">Пока никого. Позови друзей!</div>`}
       </div>
-      <div class="tiny muted center mb">Тапни по охотнику, чтобы вызвать его на дуэль.<br>🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
+      <div class="tiny muted center mb">Тапни по игроку, чтобы вызвать его на дуэль.<br>🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
       <button class="btn ghost block" id="lb-share">Пригласить друга</button>`;
   } else if (rtab === "feed") {
-    body = `<div class="win"><div class="win-h">Лента охотников</div>
+    body = `<div class="win"><div class="win-h">Лента игроков</div>
       ${!feed ? `<div class="center"><span class="spinner"></span></div>` : feed.length ? feed.map(ev => `<div class="feed-i">
         <div class="rank-mini rank-${esc((ev.players && ev.players.rank) || "E")}">${esc(rankMono((ev.players && ev.players.rank) || "E"))}</div>
         <div class="grow"><b>${esc(ev.players ? ev.players.name : "?")}</b> <span class="small">${esc(ev.text)}</span></div>
@@ -993,7 +993,7 @@ function renderRating(P) {
   const sh = document.getElementById("lb-share");
   if (sh) sh.onclick = async () => {
     const url = location.href.split("#")[0];
-    try { if (navigator.share) await navigator.share({ title: "ARISE", text: "Давай соревноваться в ARISE!", url }); else { await navigator.clipboard.writeText(url); toast("Ссылка скопирована"); } } catch {}
+    try { if (navigator.share) await navigator.share({ title: "Ingot", text: "Давай прокачиваться вместе в Ingot!", url }); else { await navigator.clipboard.writeText(url); toast("Ссылка скопирована"); } } catch {}
   };
   $app.querySelectorAll("[data-duel]").forEach(r => r.onclick = () => openDuel(r.dataset.duel, r.dataset.name));
   $app.querySelectorAll("[data-lgo]").forEach(b => b.onclick = () => runLive(b.dataset.lgo).catch(e => toast(e.message, true)));
@@ -1103,7 +1103,7 @@ function openWorkout(date, lvl) {
 function profileFields(p, withName) {
   p = p || { name: "", sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 };
   return `
-    ${withName ? `<label class="f">Имя охотника (видно в рейтинге)<input class="in" id="pf-name" value="${esc(p.name)}" placeholder="Например, Сурен" maxlength="24" autocomplete="off"></label>` : ""}
+    ${withName ? `<label class="f">Имя игрока (видно в рейтинге)<input class="in" id="pf-name" value="${esc(p.name)}" placeholder="Например, Сурен" maxlength="24" autocomplete="off"></label>` : ""}
     <div class="grid2 ${withName ? "mt" : ""}">
       <label class="f">Пол<select class="in" id="pf-sex"><option value="m" ${p.sex === "m" ? "selected" : ""}>Мужской</option><option value="f" ${p.sex === "f" ? "selected" : ""}>Женский</option></select></label>
       <label class="f">Возраст<input class="in" id="pf-age" inputmode="numeric" value="${p.age}"></label>
@@ -1137,7 +1137,7 @@ function renderSettings() {
     <div class="win"><div class="win-h">Уведомления и звук</div>
       <div class="small mb">Система напомнит о квесте утром, днём (если ничего не записано) и вечером (если квест не закрыт), и сообщит о вызове на дуэль.</div>
       <button class="btn block ${pushOn() ? "ghost" : ""}" id="push-btn">${pushOn() ? "Уведомления включены · выключить" : "Включить уведомления"}</button>
-      <div class="tiny muted mt" id="push-hint">${!("PushManager" in window) ? "Чтобы получать уведомления на iPhone, открой ARISE с иконки на экране «Домой» (iOS 16.4 или новее)." : ""}</div>
+      <div class="tiny muted mt" id="push-hint">${!("PushManager" in window) ? "Чтобы получать уведомления на iPhone, открой Ingot с иконки на экране «Домой» (iOS 16.4 или новее)." : ""}</div>
       <div class="row mt"><span class="grow small">Звуки Системы</span><button class="btn sm ${S.sound === false ? "ghost" : ""}" id="snd-btn">${S.sound === false ? "Выкл" : "Вкл"}</button></div>
     </div>
     <div class="win"><div class="win-h">Параметры тела и цель</div>
@@ -1161,7 +1161,7 @@ function renderSettings() {
       <div class="tiny muted mt">Записей: ${S.entries.length}. ${S.player ? "Копия данных хранится на сервере — восстановишь по коду." : "Данные лежат только в этом браузере — делай экспорт."}</div>
       <button class="btn danger block mt" id="reset">Сбросить всё</button>
     </div>
-    <div class="center tiny dim mb">ARISE · v4.1</div>`;
+    <div class="center tiny dim mb">Ingot · v5.0</div>`;
   document.getElementById("push-btn").onclick = togglePush;
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
@@ -1200,10 +1200,10 @@ async function togglePush() {
     try { await api("push_unsub", { token: S.player.token }); } catch {}
     S.pushOn = false; save(); render(); toast("Уведомления выключены"); return;
   }
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return toast("Открой ARISE с иконки на экране «Домой» — в браузере iPhone уведомления не работают", true);
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return toast("Открой Ingot с иконки на экране «Домой» — в браузере iPhone уведомления не работают", true);
   if (!S.player) return toast("Сначала войди в рейтинг", true);
   const perm = await Notification.requestPermission();
-  if (perm !== "granted") return toast("Разреши уведомления в настройках iPhone: Настройки → Уведомления → ARISE", true);
+  if (perm !== "granted") return toast("Разреши уведомления в настройках iPhone: Настройки → Уведомления → Ingot", true);
   try {
     const { key } = await api("push_key");
     const reg = await navigator.serviceWorker.ready;
@@ -1268,7 +1268,7 @@ function exportData() {
   const data = Object.assign({}, S, { player: null }); // код игрока не экспортируем
   const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-  a.download = `arise-backup-${today()}.json`; document.body.appendChild(a); a.click();
+  a.download = `ingot-backup-${today()}.json`; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 function importData(ev) {
@@ -1290,12 +1290,12 @@ function renderOnboarding() {
   $app.innerHTML = `<div class="onb">
     <div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
     <div class="tagline">СИСТЕМА · НОВЫЙ ИГРОК</div>
-    <div class="logo">Пробуждение</div>
+    <div class="logo">Начало пути</div>
     <div class="onb-sub">Система выбрала тебя. Назови себя, Игрок.</div>
     <div class="win">
       <div class="small mb muted">Система составит план питания под твою цель, будет выдавать ежедневные квесты и повышать твой уровень.</div>
       ${profileFields(S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null, !S.player)}
-      <button class="btn-epic block mt" id="accept" style="margin-top:16px;width:100%">Пробудиться</button>
+      <button class="btn-epic block mt" id="accept" style="margin-top:16px;width:100%">Начать путь</button>
       ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}
     </div></div>`;
   const acc = document.getElementById("accept");
@@ -1314,7 +1314,7 @@ function renderOnboarding() {
     syncSeenSilently();
     const t = calcTargets(p);
     tab = "status"; render();
-    system({ kind: "levelup", tag: "СИСТЕМА", head: "Игрок пробуждён",
+    system({ kind: "levelup", tag: "СИСТЕМА", head: "Путь начат",
       body: `Добро пожаловать, ${p.name}.\n\n${planText(t)}\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}\nШаги: ${t.steps.toLocaleString("ru")} в день\n\nВыполняйте ежедневные квесты, чтобы расти в уровне.` });
     if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
       body: "Сохрани этот код (скриншот или заметки).\nС ним ты вернёшь прогресс на другом телефоне.\nОн также есть в Настройках.", btn: "Сохранил" });

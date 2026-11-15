@@ -163,7 +163,7 @@ export function examWin(P) {
 export function bindExam($app, P) {
   const S = X.S(), td = X.today();
   $app.querySelectorAll("[data-excheck]").forEach(b => b.onclick = () => {
-    if (!confirm(`Подтверждаешь: «${b.dataset.excheck}» — выполнено сегодня? Система доверяет охотникам.`)) return;
+    if (!confirm(`Подтверждаешь: «${b.dataset.excheck}» — выполнено сегодня? Система доверяет игрокам.`)) return;
     const ex = S.exam; ex.checks = ex.checks || {}; ex.checks[td] = [...new Set([...(ex.checks[td] || []), b.dataset.excheck])];
     X.save(); X.render();
   });

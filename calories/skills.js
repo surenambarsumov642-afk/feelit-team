@@ -1,4 +1,4 @@
-// ARISE — модуль «Навыки»: интервью → план на 30 дней → ежедневные задания с проверкой → повторение → боссы → финальный проект.
+// Ingot — модуль «Навыки»: интервью → план на 30 дней → ежедневные задания с проверкой → повторение → боссы → финальный проект.
 // Состояние хранится в S.skills (локально + резервная копия на сервере через sync). ИИ — через действие сервера "skill".
 
 import { rankMono } from "./exams.js";
@@ -156,7 +156,7 @@ function renderGate($app, sk) {
       ${gateHtml()}
       <div class="gate-title">ВРАТА НАВЫКА</div>
       <div class="gate-sub">Один навык · 30 дней · без отмены</div>
-      <button class="btn-epic" id="sk-open">${sk ? "Вернуться во Врата" : "Открыть Врата"}</button>
+      <button class="btn-epic" id="sk-open">${sk ? "Продолжить путь" : "Начать путь"}</button>
       ${sk ? `<div class="tiny muted center mt">Интервью сохранено: вопрос ${(sk.qi || 0) + 1}</div>` : ""}
     </div>
     <div class="gate-feats">
@@ -262,7 +262,7 @@ function startUpgrade(prev) {
     ov.classList.add("flash");
     await new Promise(r => setTimeout(r, 700));
     ov.classList.add("talk");
-    await typeText(ov.querySelector("#gm1"), mode === "upgrade" ? "Ты прошёл первые Врата. За ними — следующие." :
+    await typeText(ov.querySelector("#gm1"), mode === "upgrade" ? "Ты прошёл первую ступень. Впереди — следующая." :
       mode === "consolidate" ? "Освоение ниже 60%. Система не пустит дальше, пока основа не станет крепкой." : "Ты долго не возвращался. Сила ослабла — но не исчезла.");
     await typeText(ov.querySelector("#gm2"), "Система анализирует прошлый месяц…");
     let an = null;
@@ -590,7 +590,7 @@ const MOTTOS = [
   "Слабость — не приговор. Это стартовая точка.",
   "Пока ты сомневаешься, кто-то другой выполняет задание.",
   "Ты выбрал этот путь сам. Докажи, что выбор был верным.",
-  "Охотник растёт не в день битвы, а в каждый скучный день до неё.",
+  "Воин растёт не в день битвы, а в каждый скучный день до неё.",
   "Мотивация уходит. Дисциплина остаётся.",
 ];
 function renderActive($app, sk) {
@@ -731,7 +731,7 @@ function openBoss(sk, w) {
     const box = () => el.querySelector("#bs");
     const load = async () => {
       if (sk.bosses[w] && sk.bosses[w].boss) return fight();
-      busy(box(), "Врата открываются…");
+      busy(box(), "Система строит твой путь…");
       try {
         const days = sk.plan.days.filter(d => d.day > (w - 1) * 7 && d.day <= w * 7);
         const boss = await ask("boss", { skill: sk.plan.skill_name, level: sk.plan.profile.level, week: sk.plan.weeks[w - 1],

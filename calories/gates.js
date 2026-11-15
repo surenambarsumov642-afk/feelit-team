@@ -1,4 +1,4 @@
-// ARISE — «Врата недели»: каждую неделю у всех открываются одни и те же Врата (по номеру недели) + один рейд для команды.
+// Ingot — «Врата недели»: каждую неделю у всех открываются одни и те же Врата (по номеру недели) + один рейд для команды.
 // Прогресс считается по дням недели после входа. Награда — XP и редкий титул, провал — «Прорыв подземелья» (штраф).
 
 import { rankName, rankMono } from "./exams.js";
@@ -7,21 +7,21 @@ export function initGates(ctx) { X = ctx; }
 
 const RANK_XP = { E: 50, D: 90, C: 130, B: 180, A: 260, S: 450 };
 export const GATES = [
-  { id: "soda", rank: "E", n: "Врата Сахарной Реки", d: "3 дня без газировки и сладких напитков", type: "check", need: 3 },
+  { id: "soda", rank: "E", n: "Сахарная Река", d: "3 дня без газировки и сладких напитков", type: "check", need: 3 },
   { id: "log4", rank: "E", n: "Пещера Летописца", d: "4 дня с учётом питания", type: "auto", key: "log", need: 4 },
-  { id: "sweet", rank: "D", n: "Логово Сладкого Демона", d: "5 дней без сладкого", type: "check", need: 5 },
+  { id: "sweet", rank: "D", n: "Сладкий Искуситель", d: "5 дней без сладкого", type: "check", need: 5 },
   { id: "train3", rank: "D", n: "Тренировочный Лабиринт", d: "3 тренировки Системы за неделю", type: "auto", key: "workout", need: 3 },
   { id: "fast", rank: "C", n: "Пещера Фастфуда", d: "5 дней без фастфуда", type: "check", need: 5 },
   { id: "norm5", rank: "C", n: "Испытание Баланса", d: "5 дней в норме калорий", type: "auto", key: "norm", need: 5 },
   { id: "train5", rank: "B", n: "Кузница Тела", d: "5 тренировок Системы за неделю", type: "auto", key: "workout", need: 5 },
-  { id: "sleep", rank: "B", n: "Врата Тьмы", d: "6 дней отбой до 00:00", type: "check", need: 6 },
+  { id: "sleep", rank: "B", n: "Ночной Дозор", d: "6 дней отбой до 00:00", type: "check", need: 6 },
   { id: "perfect", rank: "A", n: "Цитадель Дисциплины", d: "5 идеальных дней (все квесты)", type: "auto", key: "all", need: 5 },
-  { id: "iron", rank: "S", n: "Красные Врата", d: "7 дней: все квесты и ни грамма сладкого", type: "combo", key: "all", need: 7 },
+  { id: "iron", rank: "S", n: "Железная Неделя", d: "7 дней: все квесты и ни грамма сладкого", type: "combo", key: "all", need: 7 },
 ];
 export const RAIDS = [
-  { id: "raid_ant", rank: "A", n: "Рейд: Остров Муравьёв", d: "Каждый участник — 4 тренировки Системы за неделю", type: "auto", key: "workout", need: 4, raid: true },
-  { id: "raid_castle", rank: "A", n: "Рейд: Замок Демонов", d: "Каждый участник — 5 дней в норме калорий", type: "auto", key: "norm", need: 5, raid: true },
-  { id: "raid_metro", rank: "B", n: "Рейд: Подземка", d: "Каждый участник — 6 дней с учётом питания", type: "auto", key: "log", need: 6, raid: true },
+  { id: "raid_ant", rank: "A", n: "Рейд: Муравейник", d: "Каждый участник — 4 тренировки Системы за неделю", type: "auto", key: "workout", need: 4, raid: true },
+  { id: "raid_castle", rank: "A", n: "Рейд: Крепость Воли", d: "Каждый участник — 5 дней в норме калорий", type: "auto", key: "norm", need: 5, raid: true },
+  { id: "raid_metro", rank: "B", n: "Рейд: Ночной Город", d: "Каждый участник — 6 дней с учётом питания", type: "auto", key: "log", need: 6, raid: true },
 ];
 const gateXp = g => RANK_XP[g.rank] + (g.raid ? 80 : 0);
 
@@ -79,18 +79,18 @@ export async function settleGates(P) {
 function reward(g, run) {
   const S = X.S();
   run.status = "done"; run.doneAt = X.today();
-  S.adj.push({ date: X.today(), xp: g.xp, why: `Врата: ${g.n}` });
+  S.adj.push({ date: X.today(), xp: g.xp, why: `Испытание: ${g.n}` });
   const tid = "gate_" + g.id;
-  if (!S.extraTitles.some(t => t.id === tid)) S.extraTitles.push({ id: tid, ic: rankMono(g.rank), n: g.raid ? `Рейдер: ${g.n.replace("Рейд: ", "")}` : `Покоритель: ${g.n}`, d: `Врата уровня «${rankName(g.rank)}»: ${g.d}` });
+  if (!S.extraTitles.some(t => t.id === tid)) S.extraTitles.push({ id: tid, ic: rankMono(g.rank), n: g.raid ? `Рейдер: ${g.n.replace("Рейд: ", "")}` : `Покоритель: ${g.n}`, d: `Испытание уровня «${rankName(g.rank)}»: ${g.d}` });
   X.system({ kind: "achv", tag: g.raid ? "РЕЙД ЗАВЕРШЁН" : "ВРАТА ЗАКРЫТЫ", head: g.n, body: `+${g.xp} XP\nНовый титул: «${g.raid ? "Рейдер" : "Покоритель"}: ${g.n.replace("Рейд: ", "")}»` });
-  X.postEvent("gate", `${g.raid ? "завершил рейд" : "закрыл Врата уровня «" + rankName(g.rank) + "»"} «${g.n.replace("Рейд: ", "")}»`);
+  X.postEvent("gate", `${g.raid ? "завершил рейд" : "прошёл испытание"} «${g.n.replace("Рейд: ", "")}»`);
 }
 function fail(g, run) {
   const S = X.S(), pen = -Math.round(g.xp / 2);
   run.status = "failed";
   S.adj.push({ date: X.addDays(g.we, 1) <= X.today() ? X.addDays(g.we, 1) : X.today(), xp: pen, why: `Прорыв: ${g.n}` });
-  X.system({ kind: "penalty", tag: "ПРОРЫВ ПОДЗЕМЕЛЬЯ", head: g.n, body: `Врата не закрыты вовремя.\n${pen} XP`, btn: "Понятно" });
-  X.postEvent("gate", `провалил Врата «${g.n.replace("Рейд: ", "")}» — прорыв подземелья`);
+  X.system({ kind: "penalty", tag: "ИСПЫТАНИЕ ПРОВАЛЕНО", head: g.n, body: `Не пройдено до конца недели.\n${pen} XP`, btn: "Понятно" });
+  X.postEvent("gate", `провалил испытание «${g.n.replace("Рейд: ", "")}»`);
 }
 async function settleRaid(g, run) {
   try {
@@ -132,8 +132,8 @@ export function gatesWin(P) {
         ${canCheck ? `<button class="btn sm" data-gcheck="${g.key}">Сегодня ✓</button>` : ""}
       </div></div>`;
   }).join("");
-  return `<div class="win violet mt"><div class="win-h">Врата недели<span class="right">до ${X.parseD(list[0].we).getDate()}.${String(X.parseD(list[0].we).getMonth() + 1).padStart(2, "0")}</span></div>
-    <div class="tiny muted mb">Закрыл — XP и редкий титул. Вошёл и не закрыл — прорыв подземелья (штраф). В рейде проигрывают все, если провалит хоть один.</div>${rows}</div>`;
+  return `<div class="win violet mt"><div class="win-h">Испытания недели<span class="right">до ${X.parseD(list[0].we).getDate()}.${String(X.parseD(list[0].we).getMonth() + 1).padStart(2, "0")}</span></div>
+    <div class="tiny muted mb">Прошёл — XP и редкий титул. Взялся и не прошёл — штраф. В рейде проигрывают все, если провалит хоть один.</div>${rows}</div>`;
 }
 export function bindGates($app, P) {
   const S = X.S(), td = X.today(), list = weekGates(weekStart(td));
@@ -143,22 +143,22 @@ export function bindGates($app, P) {
         <div class="sys-font mt" style="font-size:19px;color:#fff">${X.esc(g.n)}</div>
         <div class="small mt">${X.esc(g.d)}</div>
         <div class="notice mt" style="text-align:left">Награда: +${g.xp} XP и титул.<br>Если до воскресенья не закроешь — прорыв: ${-Math.round(g.xp / 2)} XP.${g.raid ? "<br>Рейд: проваливают все, если не справится хоть один участник." : ""}${g.type !== "auto" ? "<br>Каждый выполненный день отмечай кнопкой «Сегодня ✓» — честно." : "<br>Дни засчитываются автоматически."}</div>
-        <button class="btn-epic block mt" id="gj-go">Войти во Врата</button><button class="btn ghost block mt" id="gj-no">Не сейчас</button></div>`, (el, close) => {
+        <button class="btn-epic block mt" id="gj-go">Принять испытание</button><button class="btn ghost block mt" id="gj-no">Не сейчас</button></div>`, (el, close) => {
       el.querySelector("#gj-no").onclick = close;
       el.querySelector("#gj-go").onclick = () => {
         S.gates = S.gates || {};
         S.gates[g.key] = { joined: td, checks: [], status: "active", progress: 0 };
         X.save(); close();
         if (g.raid) syncRaid(g, S.gates[g.key]);
-        X.postEvent("gate", `вошёл во Врата «${g.n.replace("Рейд: ", "")}»`);
-        X.system({ tag: "ВРАТА ОТКРЫТЫ", head: g.n, body: "Пути назад нет. Закрой Врата до конца недели." });
+        X.postEvent("gate", `принял испытание «${g.n.replace("Рейд: ", "")}»`);
+        X.system({ tag: "ИСПЫТАНИЕ ПРИНЯТО", head: g.n, body: "Пути назад нет. Пройди его до конца недели." });
         X.render();
       };
     });
   });
   $app.querySelectorAll("[data-gcheck]").forEach(b => b.onclick = () => {
     const run = S.gates[b.dataset.gcheck];
-    if (!confirm("Подтверждаешь, что сегодня условие выполнено? Система доверяет охотникам.")) return;
+    if (!confirm("Подтверждаешь, что сегодня условие выполнено? Система доверяет игрокам.")) return;
     run.checks = [...new Set([...(run.checks || []), td])]; X.save(); X.render();
   });
   $app.querySelectorAll("[data-raid]").forEach(async el => {
