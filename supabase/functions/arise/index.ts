@@ -994,6 +994,16 @@ Deno.serve(async (req) => {
         if (error) return fail(error.code === "23505" ? "Это имя уже занято" : "Не удалось сменить имя");
         return json({ name });
       }
+      case "delete_account": {
+        // Требование Apple 5.1.1(v): удалить аккаунт и все данные из приложения.
+        // Связанные таблицы (дни, лента, дуэли, подписки на пуши, испытания, жалобы) удаляются каскадом,
+        // в общей базе продуктов автор обнуляется (продукт остаётся, без привязки к человеку).
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { error } = await db.from("players").delete().eq("id", p.id);
+        if (error) return fail("Не удалось удалить аккаунт", 500);
+        return json({ ok: true });
+      }
       default:
         return fail("unknown action");
     }

@@ -1159,8 +1159,11 @@ function renderSettings() {
       <div class="grid2"><button class="btn ghost" id="exp">Экспорт</button><button class="btn ghost" id="imp">Импорт</button></div>
       <input type="file" id="imp-file" accept="application/json,.json" class="hidden">
       <div class="tiny muted mt">Записей: ${S.entries.length}. ${S.player ? "Копия данных хранится на сервере — восстановишь по коду." : "Данные лежат только в этом браузере — делай экспорт."}</div>
-      <button class="btn danger block mt" id="reset">Сбросить всё</button>
+      <button class="btn danger block mt" id="reset">Сбросить всё на этом телефоне</button>
+      ${S.player ? `<button class="btn danger block mt" id="del-acc">Удалить аккаунт</button>
+      <div class="tiny muted mt">Удаляет аккаунт и все данные на сервере: прогресс, рейтинг, ленту, дуэли. Отменить нельзя.</div>` : ""}
     </div>
+    <div class="center tiny dim mb"><a href="./privacy.html" target="_blank" rel="noopener" style="color:inherit">Политика приватности</a> · <a href="./terms.html" target="_blank" rel="noopener" style="color:inherit">Условия</a></div>
     <div class="center tiny dim mb">Ingot · v5.0</div>`;
   document.getElementById("push-btn").onclick = togglePush;
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
@@ -1190,6 +1193,17 @@ function renderSettings() {
     if (!confirm("Удалить ВСЕ данные: записи, прогресс, профиль?")) return;
     if (!confirm("Точно? Это нельзя отменить.")) return;
     localStorage.removeItem(STORE_KEY); S = defaultState(); tab = "status"; render();
+  };
+  const del = document.getElementById("del-acc");
+  if (del) del.onclick = async () => {
+    if (!confirm("Удалить аккаунт и все данные на сервере? Прогресс, рейтинг и код восстановления перестанут работать.")) return;
+    if (!confirm("Точно удалить? Это нельзя отменить.")) return;
+    del.disabled = true; del.textContent = "Удаляю…";
+    try { await api("delete_account", { token: S.player.token }); }
+    catch (e) { del.disabled = false; del.textContent = "Удалить аккаунт"; return toast("Не удалось удалить: " + (e.message || "нет связи") + ". Попробуй ещё раз.", true); }
+    try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch {}
+    localStorage.removeItem(STORE_KEY); S = defaultState(); tab = "status"; render();
+    toast("Аккаунт и данные удалены");
   };
 }
 const pushOn = () => !!S.pushOn && typeof Notification !== "undefined" && Notification.permission === "granted";
