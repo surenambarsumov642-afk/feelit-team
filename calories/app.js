@@ -11,6 +11,8 @@ const CAM = ["push", "squat", "abs"]; // упражнения, которые с
 const loadPose = () => import("./pose.js");
 const loadScanner = () => import("./scanner.js");
 const STORE_KEY = "arise-calories-v1";
+/** Функции второй версии (дуэли, сезоны, испытания недели) спрятаны до роста базы. Включить для теста: localStorage["ingot-v2"]="1". */
+const V2 = (() => { try { return localStorage.getItem("ingot-v2") === "1"; } catch { return false; } })();
 const $app = document.getElementById("app");
 
 /* ============================ утилиты ============================ */
@@ -465,7 +467,7 @@ function render() {
   else renderSettings();
   renderTabbar();
   checkEvents(P);
-  settleGates(P).then(() => { /* изменения подхватит следующий render */ });
+  if (V2) settleGates(P).then(() => { /* изменения подхватит следующий render */ });
   settleExam(P);
   greet(P);
 }
@@ -581,7 +583,7 @@ function renderStatus(P) {
     </div>
     ${questsWin(P, td)}
     ${examWin(P)}
-    ${API_URL && S.player ? gatesWin(P) : ""}
+    ${V2 && API_URL && S.player ? gatesWin(P) : ""}
     <div class="qbtns">
       <button class="btn block" data-act="photo">${ICONS.camera.replace("<svg", '<svg width="20" height="20" style="vertical-align:-4px;margin-right:6px"')}Фото еды</button>
       <button class="btn block" data-act="manual">${ICONS.pencil.replace("<svg", '<svg width="20" height="20" style="vertical-align:-4px;margin-right:6px"')}По названию</button>
@@ -600,7 +602,7 @@ function renderStatus(P) {
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
   const gd = $app.querySelector("[data-godiary]"); if (gd) gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); };
   bindQuests(P);
-  if (API_URL && S.player) bindGates($app, P);
+  if (V2 && API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
 }
 function planWin(t) {
@@ -803,7 +805,7 @@ function renderAbout(P) {
 /* ============================ экран: Рейтинг ============================ */
 let board = null, boardErr = null, boardAt = 0, boardPeriod = "week", champs = null;
 let rtab = "board", feed = null, feedAt = 0, duels = null, duelsAt = 0;
-const PERIODS = [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"], ["all", "Всё время"]];
+const PERIODS = V2 ? [["week", "Неделя"], ["month", "Месяц"], ["year", "Год"], ["all", "Всё время"]] : [["week", "Неделя"], ["all", "Всё время"]];
 const CHAMP = { week: ["Огонь недели", "🔥"], month: ["Пламя месяца", "♛"], year: ["Феникс года", "🦅"] };
 const METRICS = { xp: "больше XP", norm: "больше дней в норме", workout: "больше тренировок" };
 async function loadBoard() {
@@ -815,7 +817,7 @@ async function loadBoard() {
   if (tab === "rating") render();
 }
 function seasonPopups() {
-  if (!champs || !S.player) return;
+  if (!V2 || !champs || !S.player) return;
   S.seen.champs = S.seen.champs || [];
   for (const k of ["week", "month", "year"]) {
     const c = champs[k]; if (!c || S.seen.champs.includes(c.key)) continue;
@@ -928,8 +930,8 @@ function renderRating(P) {
       const fresh = u.stats_date === td;
       const q = fresh ? u.today_quests : 0, qt = u.today_total || QUESTS.length;
       const streak = fresh || u.stats_date === addDays(td, -1) ? u.streak : 0;
-      const badges = champs ? ["week", "month", "year"].filter(k => champs[k] && champs[k].id === u.id).map(k => CHAMP[k][1]).join("") : "";
-      return `<div class="lb ${u.id === me ? "me" : ""}" ${u.id !== me ? `data-duel="${u.id}" data-name="${esc(u.name)}"` : ""}>
+      const badges = V2 && champs ? ["week", "month", "year"].filter(k => champs[k] && champs[k].id === u.id).map(k => CHAMP[k][1]).join("") : "";
+      return `<div class="lb ${u.id === me ? "me" : ""}" ${V2 && u.id !== me ? `data-duel="${u.id}" data-name="${esc(u.name)}"` : ""}>
         <div class="pos ${i < 3 ? "top" + (i + 1) : ""}">${i + 1}</div>
         <div class="rank-mini rank-${esc(u.rank)}" title="${esc(rankName(u.rank))}">${esc(rankMono(u.rank))}</div>
         <div class="grow" style="min-width:0">
@@ -939,13 +941,13 @@ function renderRating(P) {
         <div class="lb-r"><div title="серия">🔥 ${streak}</div><div class="tiny ${q >= qt ? "ok" : "muted"}">квесты ${q}/${qt}</div></div>
       </div>`;
     }).join("");
-    const ch = champs ? ["week", "month", "year"].filter(k => champs[k]).map(k => `<div class="champ"><span>${CHAMP[k][1]}</span><div><div class="tiny muted">${CHAMP[k][0]}</div><b>${esc(champs[k].name)}</b></div></div>`).join("") : "";
+    const ch = V2 && champs ? ["week", "month", "year"].filter(k => champs[k]).map(k => `<div class="champ"><span>${CHAMP[k][1]}</span><div><div class="tiny muted">${CHAMP[k][0]}</div><b>${esc(champs[k].name)}</b></div></div>`).join("") : "";
     body = `<div class="seg mb">${PERIODS.map(([k, n]) => `<button data-per="${k}" class="${boardPeriod === k ? "on" : ""}">${n}</button>`).join("")}</div>
       ${ch ? `<div class="champs mb">${ch}</div>` : ""}
-      <div class="win"><div class="win-h">${boardPeriod === "all" ? "Таблица игроков" : "Сезон: " + PERIODS.find(p => p[0] === boardPeriod)[1].toLowerCase()}<span class="right">по XP</span></div>
+      <div class="win"><div class="win-h">${boardPeriod === "all" ? "Таблица игроков" : V2 ? "Сезон: " + PERIODS.find(p => p[0] === boardPeriod)[1].toLowerCase() : "Эта неделя"}<span class="right">по XP</span></div>
         ${boardErr ? `<div class="small bad">${esc(boardErr)}</div>` : !board ? `<div class="center"><span class="spinner"></span></div>` : rows || `<div class="empty">Пока никого. Позови друзей!</div>`}
       </div>
-      <div class="tiny muted center mb">Тапни по игроку, чтобы вызвать его на дуэль.<br>🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
+      <div class="tiny muted center mb">${V2 ? "Тапни по игроку, чтобы вызвать его на дуэль.<br>" : ""}🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
       <button class="btn ghost block" id="lb-share">Пригласить друга</button>`;
   } else if (rtab === "feed") {
     body = `<div class="win"><div class="win-h">Лента игроков</div>
@@ -981,7 +983,7 @@ function renderRating(P) {
       }).join("") : `<div class="empty">Дуэлей пока нет.</div>`}</div>`;
   }
   $app.innerHTML = `<div class="screen-title"><h1>Рейтинг</h1><button class="icon-btn" style="margin-left:auto" id="lb-refresh" aria-label="Обновить">↻</button></div>
-    <div class="seg mb rtabs"><button data-rt="board" class="${rtab === "board" ? "on" : ""}">Таблица</button><button data-rt="feed" class="${rtab === "feed" ? "on" : ""}">Лента</button><button data-rt="duels" class="${rtab === "duels" ? "on" : ""}">Дуэли</button></div>
+    <div class="seg mb rtabs"><button data-rt="board" class="${rtab === "board" ? "on" : ""}">Таблица</button><button data-rt="feed" class="${rtab === "feed" ? "on" : ""}">Лента</button>${V2 ? `<button data-rt="duels" class="${rtab === "duels" ? "on" : ""}">Дуэли</button>` : ""}</div>
     ${body}`;
   $app.querySelectorAll("[data-rt]").forEach(b => b.onclick = () => { rtab = b.dataset.rt; render(); });
   $app.querySelectorAll("[data-per]").forEach(b => b.onclick = () => { boardPeriod = b.dataset.per; board = null; boardErr = null; render(); });
