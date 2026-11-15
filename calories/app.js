@@ -1,7 +1,7 @@
 // Ingot — учёт калорий в стиле «Системы». Данные на устройстве + синхронизация с сервером (рейтинг, резервная копия).
 import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
-import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, skillToday, openWorldView } from "./skills.js";
+import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, skillToday, openWorldView, startSkillWith, resumeInterview, POPULAR } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE, RANKS, RANK_LV, rankName, rankMono, rankLabel, rankGlyph } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
@@ -570,7 +570,8 @@ function questsWin(P, date) {
 function todayWin(P) {
   const td = today(), d = P.days[td], sk = skillToday(), due = worldDue();
   const rows = [];
-  if (sk.skill) rows.push({ done: sk.state === "done" || sk.state === "rest", ic: "✦", t: sk.state === "rest" ? "День отдыха навыка" : `Навык: ${sk.title || "задание дня"}`,
+  if (sk.state === "interview") rows.push({ done: false, ic: "✦", t: `Навык «${sk.skill}»: собери план`, p: "5 минут вопросов → личный план на 30 дней", xp: "", attr: "data-skresume", cta: true });
+  else if (sk.skill) rows.push({ done: sk.state === "done" || sk.state === "rest", ic: "✦", t: sk.state === "rest" ? "День отдыха навыка" : `Навык: ${sk.title || "задание дня"}`,
     p: `${sk.skill}${sk.day && sk.day <= 30 ? ` · день ${sk.day}/30` : ""}`, xp: "+40", attr: "data-skgo" });
   else rows.push({ done: false, ic: "✦", t: "Выбери навык", p: "ИИ составит личный план на 30 дней", xp: "", attr: "data-skgo", cta: true });
   const w = d.q.workout;
@@ -616,6 +617,7 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelectorAll("[data-skresume]").forEach(b => b.onclick = () => { tab = "skills"; resumeInterview(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-godiary]").forEach(gd => gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); });
@@ -1320,39 +1322,61 @@ function importData(ev) {
 }
 
 /* ============================ онбординг ============================ */
+let onb = { step: 0, path: [], future: "", skill: "", minutes: "30" };
+const ONB_PATHS = [["skill", "✦ Освоить навык и зарабатывать"], ["body", "⚔ Стать сильнее телом"], ["food", "◎ Навести порядок в питании"]];
 function renderOnboarding() {
-  $app.innerHTML = `<div class="onb">
-    <div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
-    <div class="tagline">СИСТЕМА · НОВЫЙ ИГРОК</div>
-    <div class="logo">Начало пути</div>
-    <div class="onb-sub">Система выбрала тебя. Назови себя, Игрок.</div>
-    <div class="win">
-      <div class="small mb muted">Система составит план питания под твою цель, будет выдавать ежедневные квесты и повышать твой уровень.</div>
-      ${profileFields(S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null, !S.player)}
-      <button class="btn-epic block mt" id="accept" style="margin-top:16px;width:100%">Начать путь</button>
-      ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}
-    </div></div>`;
-  const acc = document.getElementById("accept");
-  acc.onclick = async () => {
-    const p = readProfile(S.player ? { name: S.player.name } : {}); if (!p) return;
-    p.createdAt = today(); p.customTargets = false;
-    if (API_URL && !S.player) {
-      acc.disabled = true; acc.innerHTML = `<span class="spinner"></span>`;
-      try {
-        const d = await api("register", { name: p.name });
-        S.player = { id: d.id, token: d.token, name: d.name };
-      } catch (e) { toast(e.message, true); acc.disabled = false; acc.textContent = "Принять"; return; }
-    }
-    S.profile = p;
-    S.weights = [{ date: today(), kg: p.weight }];
-    syncSeenSilently();
-    const t = calcTargets(p);
-    tab = "status"; render();
-    system({ kind: "levelup", tag: "СИСТЕМА", head: "Путь начат",
-      body: `Добро пожаловать, ${p.name}.\n\n${planText(t)}\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}\nШаги: ${t.steps.toLocaleString("ru")} в день\n\nВыполняйте ежедневные квесты, чтобы расти в уровне.` });
-    if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
-      body: "Сохрани этот код (скриншот или заметки).\nС ним ты вернёшь прогресс на другом телефоне.\nОн также есть в Настройках.", btn: "Сохранил" });
+  const STEPS = 5, st = onb.step;
+  const head = (tag, title, sub) => `<div class="onb-sig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 8 16 12 12 16 8 12Z"/></svg></div>
+    <div class="onb-steps">${Array.from({ length: STEPS }, (_, i) => `<i class="${i <= st ? "on" : ""}"></i>`).join("")}</div>
+    <div class="tagline">${tag}</div><div class="logo">${title}</div>${sub ? `<div class="onb-sub">${sub}</div>` : ""}`;
+  const nav = (label = "Дальше", disabled = false) => `<button class="btn-epic block mt" id="onb-next" style="margin-top:16px;width:100%" ${disabled ? "disabled" : ""}>${label}</button>
+    ${st > 0 ? `<button class="btn ghost block mt" id="onb-back">Назад</button>` : ""}`;
+  let body = "";
+  if (st === 0) body = `${head("НАЧАЛО ПУТИ", "Кем ты станешь<br>через 90 дней?", "Ingot прокачивает тебя целиком: навык, тело, питание. С чего начнём?")}
+    <div class="win"><div class="onb-chips">${ONB_PATHS.map(([k, n]) => `<button class="chip-b ${onb.path.includes(k) ? "on" : ""}" data-path="${k}">${n}</button>`).join("")}</div>
+      <label class="f mt">Опиши себя через 90 дней (необязательно)<textarea class="in" id="onb-future" rows="2" maxlength="200" placeholder="Например: делаю видео на заказ, подтянутый, без сладкого">${esc(onb.future)}</textarea></label>
+      ${nav()}
+      ${API_URL && !S.player ? `<button class="btn ghost block mt" id="restore">У меня есть код восстановления</button>` : ""}</div>`;
+  else if (st === 1) body = `${head("НАВЫК", "Какой навык<br>прокачаем?", "Система составит личный план на 30 дней. Можно выбрать позже.")}
+    <div class="win"><div class="onb-chips">${POPULAR.slice(0, 10).map(n => `<button class="chip-b ${onb.skill === n ? "on" : ""}" data-sk="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+      <label class="f mt">Или свой<input class="in" id="onb-skill" maxlength="60" placeholder="Например: английский для работы" value="${POPULAR.includes(onb.skill) ? "" : esc(onb.skill)}"></label>
+      ${nav()}<button class="btn ghost block mt" id="onb-noskill">Пока без навыка</button></div>`;
+  else if (st === 2) body = `${head("ВРЕМЯ", "Сколько минут<br>в день готов?", "Лучше честные 15 минут каждый день, чем 2 часа раз в неделю.")}
+    <div class="win"><div class="onb-chips">${[["15", "15 минут"], ["30", "30 минут"], ["60", "1 час"], ["90", "1,5 часа"]].map(([k, n]) => `<button class="chip-b ${onb.minutes === k ? "on" : ""}" data-min="${k}">${n}</button>`).join("")}</div>${nav()}</div>`;
+  else if (st === 3) body = `${head("ТЕЛО", "Твои параметры", "Нужны, чтобы рассчитать питание и тренировки под тебя.")}
+    <div class="win">${profileFields(onb.prof || (S.player ? { name: S.player.name, sex: "m", age: 25, height: 178, weight: 80, targetWeight: 75, activity: 1.375 } : null), !S.player)}${nav()}</div>`;
+  else {
+    const p = onb.prof || {}, sk = onb.skill;
+    body = `${head("КОНТРАКТ", "Контракт<br>с Системой", "")}
+    <div class="win contract"><div class="small" style="white-space:pre-line">Я, <b>${esc(p.name || (S.player && S.player.name) || "Игрок")}</b>, начинаю путь.
+
+${onb.future ? `Через 90 дней я — ${esc(onb.future)}.\n\n` : ""}Каждый день я уделяю себе <b>${onb.minutes === "60" ? "1 час" : onb.minutes === "90" ? "1,5 часа" : onb.minutes + " минут"}</b>${sk ? ` и прокачиваю навык <b>«${esc(sk)}»</b>` : ""}.
+Я не жду мотивации. Я делаю минимум даже в плохой день.
+Пропуск — не конец. Конец — это когда сдаёшься.</div>
+      <button class="sign-btn block mt" id="accept"><i></i><span>Удерживай, чтобы подписать</span></button>
+      <button class="btn ghost block mt" id="onb-back">Назад</button></div>`;
+  }
+  $app.innerHTML = `<div class="onb">${body}</div>`;
+  const $ = id => document.getElementById(id);
+  const go = n => { onb.step = n; renderOnboarding(); window.scrollTo(0, 0); };
+  if ($("onb-back")) $("onb-back").onclick = () => { if (st === 3) onb.prof = readProfileSoft(); go(st - 1); };
+  $app.querySelectorAll("[data-path]").forEach(b => b.onclick = () => { const k = b.dataset.path; onb.path = onb.path.includes(k) ? onb.path.filter(x => x !== k) : [...onb.path, k]; onb.future = $("onb-future").value.trim(); renderOnboarding(); });
+  $app.querySelectorAll("[data-sk]").forEach(b => b.onclick = () => { onb.skill = b.dataset.sk; renderOnboarding(); });
+  $app.querySelectorAll("[data-min]").forEach(b => b.onclick = () => { onb.minutes = b.dataset.min; renderOnboarding(); });
+  if ($("onb-noskill")) $("onb-noskill").onclick = () => { onb.skill = ""; go(2); };
+  if ($("onb-next")) $("onb-next").onclick = () => {
+    if (st === 0) onb.future = $("onb-future").value.trim();
+    if (st === 1) { const c = $("onb-skill").value.trim(); if (c) onb.skill = c; }
+    if (st === 3) { const p = readProfile(S.player ? { name: S.player.name } : {}); if (!p) return; onb.prof = p; }
+    go(st + 1);
   };
+  const acc = $("accept");
+  if (acc) {
+    let tmr = 0, done = false;
+    const start = e => { e.preventDefault(); if (done) return; acc.classList.add("hold"); tmr = setTimeout(() => { done = true; acc.classList.add("signed"); acc.querySelector("span").textContent = "Подписано ✓"; try { navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive && navigator.vibrate([30, 40, 80]); } catch {} sfx("rank"); finishOnboarding(acc); }, 1200); };
+    const stop = () => { if (done) return; clearTimeout(tmr); acc.classList.remove("hold"); };
+    acc.addEventListener("pointerdown", start); acc.addEventListener("pointerup", stop); acc.addEventListener("pointerleave", stop); acc.addEventListener("pointercancel", stop);
+  }
   const rs = document.getElementById("restore");
   if (rs) rs.onclick = () => sheet(`<h2>Восстановление</h2>
       <label class="f">Код восстановления<input class="in sys-font" id="rs-code" placeholder="XXXXXX-XXXXXX-XXXXXX" autocapitalize="characters" autocomplete="off"></label>
@@ -1369,6 +1393,30 @@ function renderOnboarding() {
       } catch (e) { toast(e.message, true); btn.disabled = false; }
     };
   });
+}
+function readProfileSoft() { try { const p = readProfile(S.player ? { name: S.player.name } : {}); return p || onb.prof; } catch { return onb.prof; } }
+async function finishOnboarding(acc) {
+  const p = Object.assign({}, onb.prof); if (!p.name && S.player) p.name = S.player.name;
+  p.createdAt = today(); p.customTargets = false;
+  p.path = onb.path; p.future = onb.future; p.minutes = +onb.minutes;
+  p.contract = { at: today(), skill: onb.skill || null };
+  if (API_URL && !S.player) {
+    try {
+      const d = await api("register", { name: p.name });
+      S.player = { id: d.id, token: d.token, name: d.name };
+    } catch (e) { toast(e.message, true); onb.step = 3; renderOnboarding(); return; }
+  }
+  S.profile = p;
+  S.weights = [{ date: today(), kg: p.weight }];
+  if (onb.skill && API_URL && S.player) startSkillWith({ goal: onb.skill, wk: onb.minutes, why: onb.future });
+  onb = { step: 0, path: [], future: "", skill: "", minutes: "30" };
+  syncSeenSilently();
+  const t = calcTargets(p);
+  tab = "status"; render();
+  system({ kind: "levelup", tag: "КОНТРАКТ ПОДПИСАН", head: "Путь начат",
+    body: `Добро пожаловать, ${p.name}.\n\nПервая победа — прямо сейчас. Выбери одно дело на 3 минуты: запиши еду, сделай тренировку${onb.skill ? " или ответь на вопросы для плана навыка" : ""}.\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}`, btn: "Начать" });
+  if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
+    body: "Сохрани этот код (скриншот или заметки).\nС ним ты вернёшь прогресс на другом телефоне.\nОн также есть в Настройках.", btn: "Сохранил" });
 }
 
 /* ============================ шторки ============================ */

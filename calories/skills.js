@@ -6,7 +6,7 @@ let X; // контекст из app.js: { S(), save, api, sheet, system, toast, 
 export function initSkills(ctx) { X = ctx; }
 
 /* ============================ константы ============================ */
-const POPULAR = [
+export const POPULAR = [
   "ИИ-видео", "ИИ-картинки и дизайн", "ИИ-ассистенты и промпты", "Разработка ИИ-ботов", "Программирование на Python",
   "Веб-разработка", "Мобилография", "Монтаж видео", "SMM и ведение Instagram", "Таргетированная реклама", "Копирайтинг",
   "Графический дизайн", "Английский язык", "Публичные выступления", "Продажи", "Личные финансы и инвестиции",
@@ -805,8 +805,21 @@ function finishSkill(sk) {
 }
 
 /** Состояние задания навыка на сегодня (для напоминаний): none / todo / done / rest. */
+/** Онбординг: создать черновик навыка с уже известными ответами (цель, минуты, зачем) — интервью начнётся со 2-го вопроса. */
+export function startSkillWith({ goal, wk, why }) {
+  const S = X.S();
+  if ((S.skills || []).some(s => s.status === "interview" || s.status === "active")) return;
+  const sk = { id: Date.now().toString(36), status: "interview", qi: 1, level: 1,
+    answers: { goal, ...(wk ? { wk: String(wk) } : {}), ...(why ? { why } : {}), city: "Ташкент", lang: "ru", tone: "strict", off: [], hard: [], format: [] },
+    tasks: {}, bosses: {}, cards: [], journal: [] };
+  (S.skills = S.skills || []).push(sk); X.save();
+}
+/** Открыть интервью черновика навыка (с экрана «Сегодня»). */
+export function resumeInterview() { const sk = (X.S().skills || []).find(s => s.status === "interview"); if (sk) { autoOpen = true; } X.render(); }
 /** Для экрана «Сегодня»: состояние и название задания навыка на сегодня. */
 export function skillToday() {
+  const draft = (X.S().skills || []).find(s => s.status === "interview");
+  if (draft && !(X.S().skills || []).some(s => s.status === "active")) return { state: "interview", skill: draft.answers.goal || "навык", title: "", day: 0 };
   const state = skillTodayState(), sk = (X.S().skills || []).find(s => s.status === "active");
   if (!sk || !sk.plan) return { state, skill: null, title: "" };
   const n = dayOf(sk, X.today()), pd = n >= 1 && n <= 30 ? planDay(sk, n) : null;
