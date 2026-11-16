@@ -403,3 +403,10 @@ input.in:focus,select.in:focus,textarea.in:focus{box-shadow:inset 0 0 0 1px rgba
 .rp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.07)}
 .rp-row:first-of-type{border-top:0}.rp-d{min-width:58px;text-align:right;font-size:13px;font-weight:600}
 .good{color:#5fe0a0}
+.gold-win{border-color:rgba(255,194,74,.55);background:linear-gradient(160deg,rgba(255,194,74,.14),rgba(154,107,255,.08))}
+.gold-win .win-h{color:#ffd77a}
+
+/* ---------- напарники ---------- */
+.buddy{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,.07);cursor:pointer}
+.buddy:first-of-type{border-top:0}.buddy .qt{font-weight:600}.buddy .qp{font-size:13px}
+.bstreak{font-weight:700;font-size:17px;color:#ffd77a}

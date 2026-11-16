@@ -1,0 +1,10 @@
+{
+  "appId": "app.ingot.levelup",
+  "appName": "Ingot",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#05060f",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
