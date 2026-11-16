@@ -617,6 +617,18 @@ async function skillAI(kind: string, ctx: Record<string, unknown>, image?: strin
 
 
 
+
+/* ---------------- Ingot Gold: подписка ----------------
+ GOLD_ENFORCE=1 включает бесплатные лимиты (до запуска подписки выключено — у всех всё как раньше).
+ Бесплатно: PHOTO_FREE фото-анализов в день (3); Gold: PHOTO_LIMIT (15). Тренажёр переговоров и уровни навыка 2+ — Gold.
+ «Не могу себе позволить»: 90 дней Gold бесплатно, не чаще раза в год. */
+const GOLD_ENFORCE = () => Deno.env.get("GOLD_ENFORCE") === "1";
+export const isGold = (p: Record<string, any>) => !!p.gold_until && Date.parse(String(p.gold_until)) > Date.now();
+const GOLD_KINDS = new Set(["client_sim", "client_grade", "upgrade_analysis"]);
+const photoLimit = (p: Record<string, any>) => GOLD_ENFORCE() && !isGold(p)
+  ? int(Deno.env.get("PHOTO_FREE") ?? 3, 0, 1000) : int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000);
+const GOLD_ONLY = "Это возможность Ingot Gold.";
+
 /* ---------------- общий дневной лимит ИИ (страховка от счёта) ----------------
  Сверх лимитов на игрока: все запросы к ИИ за сутки по всему приложению (AI_DAY_CAP, по умолчанию 5000).
  Плюс новые аккаунты первые сутки получают половину лимитов — чтобы не плодили аккаунты ради бесплатного ИИ. */
@@ -832,7 +844,7 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const image = String(b.image ?? "");
         if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
-        const limit = freshLimit(p, int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000));
+        const limit = freshLimit(p, photoLimit(p));
         const day = todayUTC5();
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Используй ручной ввод.`, 429);
@@ -860,6 +872,7 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const kind = String(b.kind ?? "");
         if (!SKILL_KINDS[kind]) return fail("Неизвестный запрос");
+        if (GOLD_ENFORCE() && GOLD_KINDS.has(kind) && !isGold(p)) return json({ error: GOLD_ONLY, gold_required: true }, 402);
         const ctx = (b.ctx ?? {}) as Record<string, unknown>;
         if (JSON.stringify(ctx).length > 60_000) return fail("Слишком большой запрос");
         const image = b.image ? String(b.image) : undefined;
@@ -1049,7 +1062,7 @@ Deno.serve(async (req) => {
         if (!p) return fail("Неверный код игрока", 401);
         const image = String(b.image ?? "").replace(/^data:[^,]*,/, "");
         if (!image || image.length > 4_000_000) return fail("Фото не получено или слишком большое");
-        const limit = freshLimit(p, int(Deno.env.get("PHOTO_LIMIT") ?? 15, 1, 1000));
+        const limit = freshLimit(p, photoLimit(p));
         const day = todayUTC5();
         const used = p.photo_day === day ? p.photo_count : 0;
         if (used >= limit) return fail(`Лимит ${limit} фото в день исчерпан. Введи данные с этикетки вручную.`, 429);
@@ -1075,6 +1088,23 @@ Deno.serve(async (req) => {
         const { error } = await db.from("players").update({ name, updated_at: new Date().toISOString() }).eq("id", p.id);
         if (error) return fail(error.code === "23505" ? "Это имя уже занято" : "Не удалось сменить имя");
         return json({ name });
+      }
+      case "entitlement": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        return json({ gold: isGold(p), until: p.gold_until ?? null, source: p.gold_source ?? null, enforce: GOLD_ENFORCE(),
+          afford_available: !p.afford_at || daysBetween(String(p.afford_at).slice(0, 10), todayUTC5()) >= 365 });
+      }
+      case "gold_afford": {
+        // «Не могу себе позволить» (как у Finch): 90 дней Gold без вопросов, раз в год на аккаунт.
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        if (p.afford_at && daysBetween(String(p.afford_at).slice(0, 10), todayUTC5()) < 365) return fail("Эта помощь доступна раз в год. Она снова откроется позже.");
+        const base = isGold(p) ? Date.parse(String(p.gold_until)) : Date.now();
+        const until = new Date(base + 90 * 864e5).toISOString();
+        const { error } = await db.from("players").update({ gold_until: until, gold_source: "afford", afford_at: todayUTC5() }).eq("id", p.id);
+        if (error) return fail("Не удалось оформить", 500);
+        return json({ ok: true, until });
       }
       case "delete_account": {
         // Требование Apple 5.1.1(v): удалить аккаунт и все данные из приложения.

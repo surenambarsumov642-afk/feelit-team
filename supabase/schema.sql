@@ -149,3 +149,7 @@ alter table public.players add column if not exists xp_base_day date;
 alter table public.players add column if not exists xp_span int not null default 1;
 alter table public.players add column if not exists flags int not null default 0;
 alter table public.players add column if not exists remind_hour int;
+-- Ingot Gold: подписка (Apple / промо / «не могу себе позволить»)
+alter table public.players add column if not exists gold_until timestamptz;
+alter table public.players add column if not exists gold_source text;
+alter table public.players add column if not exists afford_at date;
