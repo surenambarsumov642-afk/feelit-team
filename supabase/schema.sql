@@ -153,3 +153,11 @@ alter table public.players add column if not exists remind_hour int;
 alter table public.players add column if not exists gold_until timestamptz;
 alter table public.players add column if not exists gold_source text;
 alter table public.players add column if not exists afford_at date;
+-- напарники: общая серия с друзьями
+create table if not exists public.buddies (
+  a uuid not null references public.players(id) on delete cascade,
+  b uuid not null references public.players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (a, b)
+);
+alter table public.buddies enable row level security;

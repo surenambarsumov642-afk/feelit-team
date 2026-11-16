@@ -1,7 +1,7 @@
 // Защита от накрутки: проверка checkStats без сети. Запуск: deno run -A supabase/tests/xp_test.ts
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") || "http://localhost:1");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "x");
-const { checkStats, levelFromXp, badText, isGold } = await import("../functions/arise/index.ts");
+const { checkStats, levelFromXp, badText, isGold, sharedStreak } = await import("../functions/arise/index.ts");
 const day = (n: number) => { const t = new Date(Date.now() + 5 * 3600e3); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 let ok = true;
 const eq = (name: string, got: unknown, want: unknown) => { const g = JSON.stringify(got) === JSON.stringify(want); if (!g) ok = false; console.log(`${g ? "OK " : "BAD"} ${name}: ${JSON.stringify(got)}${g ? "" : " ≠ " + JSON.stringify(want)}`); };
@@ -29,6 +29,11 @@ r = checkStats({ created_at: day(-5), xp: 300, rank: "E", xp_base: 300, xp_base_
 eq("penalty down", r.xp, 250);
 for (const [t, want] of [["Сурен", false], ["Дильноза", false], ["кефир 2,5% Nestle", false], ["хлеба ржаного", false], ["требую", false], ["рубля", false], ["Basik", false],
   ["Х у й", true], ["пидор", true], ["fuck", true], ["t.me/shop", true], ["mysite.com", true], ["п1здец", true]] as [string, boolean][]) eq(`moderation «${t}»`, badText(t), want);
+{ const T = day(0), S = (...n: number[]) => new Set(n.map(day));
+  eq("buddy both today", sharedStreak(S(0, -1, -2), S(0, -1, -2, -3), T), 3);
+  eq("buddy waits today", sharedStreak(S(-1, -2), S(0, -1, -2), T), 2);
+  eq("buddy gap", sharedStreak(S(0, -1, -3), S(0, -1, -2, -3), T), 2);
+  eq("buddy none", sharedStreak(S(-5), S(0), T), 0); }
 eq("gold none", isGold({}), false);
 eq("gold active", isGold({ gold_until: new Date(Date.now() + 864e5).toISOString() }), true);
 eq("gold expired", isGold({ gold_until: new Date(Date.now() - 1000).toISOString() }), false);

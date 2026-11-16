@@ -11,6 +11,8 @@ const CAM = ["push", "squat", "abs"]; // упражнения, которые с
 const loadPose = () => import("./pose.js");
 const loadScanner = () => import("./scanner.js");
 const STORE_KEY = "arise-calories-v1";
+// Ссылка-приглашение напарника: ?buddy=<id> — запоминаем и убираем из адреса; добавим после входа.
+try { const bq = new URLSearchParams(location.search).get("buddy"); if (bq) { localStorage.setItem("ingot-buddy", bq); history.replaceState(null, "", location.pathname + location.hash); } } catch {}
 /** Запущено внутри приложения для iPhone (Capacitor), а не в браузере. */
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 /** Функции второй версии (дуэли, сезоны, испытания недели) спрятаны до роста базы. Включить для теста: localStorage["ingot-v2"]="1". */
@@ -661,6 +663,50 @@ function reportImage(r) {
   return new Promise(res => c.toBlob(res, "image/png"));
 }
 
+/* ============================ напарники: общая серия ============================ */
+let buddies = null, buddiesAt = 0;
+const inviteUrl = () => { const u = new URL(location.href.split("#")[0].split("?")[0]); if (S.player) u.searchParams.set("buddy", S.player.id); return u.toString(); };
+async function inviteBuddy() {
+  const url = inviteUrl(), text = `Будь моим напарником в Ingot: у нас будет общая серия дней. Пропустим вместе — сгорит у обоих 🔥`;
+  try { if (navigator.share) await navigator.share({ title: "Ingot", text, url }); else { await navigator.clipboard.writeText(text + "\n" + url); toast("Ссылка скопирована — отправь другу"); } } catch {}
+}
+async function loadBuddies(force) {
+  if (!API_URL || !S.player || (!force && Date.now() - buddiesAt < 60000)) return;
+  buddiesAt = Date.now();
+  try { buddies = (await api("buddies", { token: S.player.token })).buddies || []; if (tab === "status") render(); } catch {}
+}
+async function claimBuddy() {
+  let id = null; try { id = localStorage.getItem("ingot-buddy"); } catch {}
+  if (!id || !S.player || !API_URL) return;
+  try { localStorage.removeItem("ingot-buddy"); } catch {}
+  if (id === S.player.id) return;
+  try {
+    const r = await api("buddy_add", { token: S.player.token, id });
+    system({ kind: "achv", tag: "НАПАРНИК", head: `🤝 ${r.name}`, body: r.already ? "Вы уже напарники." : `Теперь у вас общая серия дней.\nДелай своё каждый день — и ${r.name} тоже. Пропустит один — сгорит у обоих.`, btn: "Вместе" });
+    loadBuddies(true);
+  } catch (e) { toast(e.message, true); }
+}
+function buddiesWin() {
+  if (!API_URL || !S.player) return "";
+  loadBuddies();
+  if (!buddies) return "";
+  if (!buddies.length) return `<div class="win buddy-win"><div class="win-h">Напарники</div>
+    <div class="small">Вместе проще не сдаться. Позови друга — у вас будет общая серия, и вы будете видеть, сделал ли каждый своё сегодня.</div>
+    <button class="btn violet block mt" data-binvite>Позвать напарника</button></div>`;
+  return `<div class="win buddy-win"><div class="win-h">Напарники<span class="right">общая серия</span></div>
+    ${buddies.map(b => `<div class="buddy" data-bud="${esc(b.id)}" data-bname="${esc(b.name)}"><div class="rank-mini rank-${esc(b.rank)}">${esc(rankMono(b.rank))}</div>
+      <div class="grow"><div class="qt">${esc(b.name)}</div><div class="qp ${b.today ? "good" : "muted"}">${b.today ? "сегодня сделал ✓" : "сегодня ещё нет"}</div></div>
+      <div class="bstreak">🔥 ${b.streak}</div></div>`).join("")}
+    ${buddies.length < 5 ? `<button class="btn ghost block mt" data-binvite>Позвать ещё</button>` : ""}</div>`;
+}
+function bindBuddies() {
+  $app.querySelectorAll("[data-binvite]").forEach(b => b.onclick = inviteBuddy);
+  $app.querySelectorAll("[data-bud]").forEach(r => r.onclick = async () => {
+    if (!confirm(`Убрать ${r.dataset.bname} из напарников? Общая серия пропадёт.`)) return;
+    try { await api("buddy_remove", { token: S.player.token, id: r.dataset.bud }); loadBuddies(true); } catch (e) { toast(e.message, true); }
+  });
+}
+
 /* ============================ экран: Статус ============================ */
 function renderStatus(P) {
   const t = targets(), td = today(), d = P.days[td], s = d.s;
@@ -669,6 +715,7 @@ function renderStatus(P) {
     ${statusTop(P)}
     ${reportWin(P)}
     ${todayWin(P)}
+    ${buddiesWin()}
     ${skillToday().skill ? statusCard() : ""}
     <div class="win" data-godiary style="cursor:pointer">
       <div class="win-h">Питание · сегодня<span class="right">XP за день: <b class="${d.xp < 0 ? "bad" : ""}">${d.xp >= 0 ? "+" : ""}${d.xp}</b></span></div>
@@ -698,6 +745,7 @@ function renderStatus(P) {
   $app.querySelectorAll("[data-hunter]").forEach(b => b.onclick = () => { tab = "player"; ptab = "profile"; render(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-godiary]").forEach(gd => gd.onclick = () => { tab = "diary"; diaryDate = today(); render(); window.scrollTo(0, 0); });
   bindQuests(P);
+  bindBuddies();
   if (V2 && API_URL && S.player) bindGates($app, P);
   bindExam($app, P);
 }
@@ -1046,7 +1094,7 @@ function renderRating(P) {
         ${boardErr ? `<div class="small bad">${esc(boardErr)}</div>` : !board ? `<div class="center"><span class="spinner"></span></div>` : rows || `<div class="empty">Пока никого. Позови друзей!</div>`}
       </div>
       <div class="tiny muted center mb">${V2 ? "Тапни по игроку, чтобы вызвать его на дуэль.<br>" : ""}🔥 — дней подряд в ударе · квесты — выполнено сегодня.</div>
-      <button class="btn ghost block" id="lb-share">Пригласить друга</button>`;
+      <button class="btn ghost block" id="lb-share">Позвать напарника</button>`;
   } else if (rtab === "feed") {
     body = `<div class="win"><div class="win-h">Лента игроков</div>
       ${!feed ? `<div class="center"><span class="spinner"></span></div>` : feed.length ? feed.map(ev => `<div class="feed-i">
@@ -1091,7 +1139,8 @@ function renderRating(P) {
     render();
   };
   const sh = document.getElementById("lb-share");
-  if (sh) sh.onclick = async () => {
+  if (sh) sh.onclick = inviteBuddy;
+  if (false) async () => {
     const url = location.href.split("#")[0];
     try { if (navigator.share) await navigator.share({ title: "Ingot", text: "Давай прокачиваться вместе в Ingot!", url }); else { await navigator.clipboard.writeText(url); toast("Ссылка скопирована"); } } catch {}
   };
@@ -1524,6 +1573,7 @@ async function finishOnboarding(acc) {
   syncSeenSilently();
   const t = calcTargets(p);
   tab = "status"; render();
+  setTimeout(claimBuddy, 300);
   system({ kind: "levelup", tag: "КОНТРАКТ ПОДПИСАН", head: "Путь начат",
     body: `Добро пожаловать, ${p.name}.\n\nПервая победа — прямо сейчас. Выбери одно дело на 3 минуты: запиши еду, сделай тренировку${onb.skill ? " или ответь на вопросы для плана навыка" : ""}.\n\nНорма: ${t.kcal} ккал · Б ${t.p} · Ж ${t.f} · У ${t.c}`, btn: "Начать" });
   if (S.player) system({ kind: "achv", tag: "КОД ВОССТАНОВЛЕНИЯ", head: S.player.token,
@@ -2058,6 +2108,7 @@ if (!sessionStorage.getItem("arise-intro")) {
 }
 render();
 if (S.player) setTimeout(syncNow, 1500);
+if (S.player && S.profile) setTimeout(claimBuddy, 2000);
 // новый день — пересчитать при возвращении в приложение
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.profile && !document.querySelector(".sheet-bg")) render(); });
 if ("serviceWorker" in navigator && !NATIVE) {

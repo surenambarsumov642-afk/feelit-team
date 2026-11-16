@@ -618,6 +618,18 @@ async function skillAI(kind: string, ctx: Record<string, unknown>, image?: strin
 
 
 
+
+/* ---------------- напарники: общая серия с друзьями (до 5) ----------------
+ Пара хранится один раз (a < b). Общая серия — дни подряд, когда активны ОБА (есть день с XP, квестом или тренировкой).
+ Сегодняшний день засчитывается, если оба уже сделали; иначе серия считается до вчера и «ждёт» сегодня. */
+const BUDDY_MAX = 5;
+export function sharedStreak(daysA: Set<string>, daysB: Set<string>, today: string) {
+  const both = (d: string) => daysA.has(d) && daysB.has(d);
+  let d = both(today) ? today : addDaysISO(today, -1), n = 0;
+  while (both(d) && n < 400) { n++; d = addDaysISO(d, -1); }
+  return n;
+}
+
 /* ---------------- Ingot Gold: подписка ----------------
  GOLD_ENFORCE=1 включает бесплатные лимиты (до запуска подписки выключено — у всех всё как раньше).
  Бесплатно: PHOTO_FREE фото-анализов в день (3); Gold: PHOTO_LIMIT (15). Тренажёр переговоров и уровни навыка 2+ — Gold.
@@ -1089,6 +1101,48 @@ Deno.serve(async (req) => {
         if (error) return fail(error.code === "23505" ? "Это имя уже занято" : "Не удалось сменить имя");
         return json({ name });
       }
+      case "buddy_add": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const other = String(b.id ?? "");
+        if (!/^[0-9a-f-]{36}$/.test(other) || other === p.id) return fail("Неверная ссылка напарника");
+        const { data: o } = await db.from("players").select("id,name").eq("id", other).maybeSingle();
+        if (!o) return fail("Игрок не найден");
+        const [a, c] = p.id < other ? [p.id, other] : [other, p.id];
+        const { count: mine } = await db.from("buddies").select("a", { count: "exact", head: true }).or(`a.eq.${p.id},b.eq.${p.id}`);
+        const { count: theirs } = await db.from("buddies").select("a", { count: "exact", head: true }).or(`a.eq.${other},b.eq.${other}`);
+        const { data: ex } = await db.from("buddies").select("a").eq("a", a).eq("b", c).maybeSingle();
+        if (ex) return json({ ok: true, name: o.name, already: true });
+        if ((mine ?? 0) >= BUDDY_MAX || (theirs ?? 0) >= BUDDY_MAX) return fail(`У напарников максимум ${BUDDY_MAX} человек`);
+        const { error } = await db.from("buddies").insert({ a, b: c });
+        if (error) return fail("Не удалось добавить напарника", 500);
+        await pushTo(other, "🤝 Новый напарник", `${p.name} теперь твой напарник в Ingot. Держите общую серию!`, "buddy");
+        return json({ ok: true, name: o.name });
+      }
+      case "buddy_remove": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const other = String(b.id ?? "");
+        const [a, c] = p.id < other ? [p.id, other] : [other, p.id];
+        await db.from("buddies").delete().eq("a", a).eq("b", c);
+        return json({ ok: true });
+      }
+      case "buddies": {
+        const p = await playerByToken(b.token);
+        if (!p) return fail("Неверный код игрока", 401);
+        const { data: rows } = await db.from("buddies").select("a,b").or(`a.eq.${p.id},b.eq.${p.id}`);
+        const ids = (rows ?? []).map((r) => r.a === p.id ? r.b : r.a);
+        if (!ids.length) return json({ buddies: [] });
+        const td = todayUTC5(), from = addDaysISO(td, -120);
+        const { data: ps } = await db.from("players").select("id,name,level,rank,stats_date,today_quests,skill_state,skill_date").in("id", ids);
+        const { data: days } = await db.from("player_days").select("player_id,day,xp,quests,workout").in("player_id", [p.id, ...ids]).gte("day", from);
+        const act: Record<string, Set<string>> = {};
+        for (const d of days ?? []) if (d.xp > 0 || d.quests > 0 || d.workout) (act[d.player_id] ??= new Set()).add(String(d.day));
+        const me = act[p.id] ?? new Set<string>();
+        return json({ buddies: (ps ?? []).map((o) => ({ id: o.id, name: o.name, level: o.level, rank: o.rank,
+          today: (act[o.id] ?? new Set()).has(td) || (o.stats_date === td && o.today_quests > 0) || (o.skill_date === td && o.skill_state === "done"),
+          streak: sharedStreak(me, act[o.id] ?? new Set(), td) })).sort((x, y) => y.streak - x.streak) });
+      }
       case "entitlement": {
         const p = await playerByToken(b.token);
         if (!p) return fail("Неверный код игрока", 401);
@@ -1126,4 +1180,4 @@ Deno.serve(async (req) => {
 });
 
 // для проверки в CI (.github/workflows/test-ai.yml)
-export { ai, levelFromXp, badText as _badText, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts, LABEL_SYSTEM, LABEL_SCHEMA, fromOFF, offLookup };
+export { ai, levelFromXp, addDaysISO, badText as _badText, skillAI, SCHEMA, SYSTEM, TEXT_SYSTEM, imageParts, LABEL_SYSTEM, LABEL_SCHEMA, fromOFF, offLookup };
