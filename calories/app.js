@@ -11,6 +11,8 @@ const CAM = ["push", "squat", "abs"]; // упражнения, которые с
 const loadPose = () => import("./pose.js");
 const loadScanner = () => import("./scanner.js");
 const STORE_KEY = "arise-calories-v1";
+/** Запущено внутри приложения для iPhone (Capacitor), а не в браузере. */
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 /** Функции второй версии (дуэли, сезоны, испытания недели) спрятаны до роста базы. Включить для теста: localStorage["ingot-v2"]="1". */
 const V2 = (() => { try { return localStorage.getItem("ingot-v2") === "1"; } catch { return false; } })();
 const $app = document.getElementById("app");
@@ -1314,6 +1316,7 @@ async function togglePush() {
     try { await api("push_unsub", { token: S.player.token }); } catch {}
     S.pushOn = false; save(); render(); toast("Уведомления выключены"); return;
   }
+  if (NATIVE) return toast("Уведомления в приложении для iPhone появятся в ближайшем обновлении", true);
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return toast("Открой Ingot с иконки на экране «Домой» — в браузере iPhone уведомления не работают", true);
   if (!S.player) return toast("Сначала войди в рейтинг", true);
   const perm = await Notification.requestPermission();
@@ -2027,7 +2030,7 @@ render();
 if (S.player) setTimeout(syncNow, 1500);
 // новый день — пересчитать при возвращении в приложение
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.profile && !document.querySelector(".sheet-bg")) render(); });
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !NATIVE) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(() => {});
   // новая версия приложения установилась — один раз перезагружаемся, чтобы сразу её показать

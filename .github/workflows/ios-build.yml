@@ -1,0 +1,44 @@
+name: Собрать iOS (симулятор)
+# Проверка, что нативная оболочка Ingot собирается без Mac: сборка под симулятор без подписи,
+# запуск в симуляторе iPhone и скриншот первого экрана (артефакт ios-screenshot).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["native/**", "calories/**", ".github/workflows/ios-build.yml"]
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Зависимости и веб-часть
+        working-directory: native
+        run: |
+          npm ci
+          ./prepare-www.sh
+          npx cap sync ios
+      - name: Xcode
+        run: xcodebuild -version
+      - name: Сборка под симулятор
+        working-directory: native/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -40
+      - name: Запуск в симуляторе и скриншот
+        working-directory: native/ios/App
+        run: |
+          APP=$(find build/Build/Products -name 'App.app' -maxdepth 3 | head -1)
+          DEV=$(xcrun simctl list devices available | grep -E 'iPhone 1[5-9]( Pro)? \(' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          echo "device $DEV app $APP"
+          xcrun simctl boot "$DEV"; sleep 20
+          xcrun simctl install "$DEV" "$APP"
+          xcrun simctl launch "$DEV" app.ingot.levelup
+          sleep 25
+          mkdir -p ../../../shots
+          xcrun simctl io "$DEV" screenshot ../../../shots/ios-launch.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ios-screenshot, path: shots/ }

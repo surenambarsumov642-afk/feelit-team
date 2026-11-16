@@ -1,0 +1,16 @@
+{
+  "name": "ingot-native",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ingot — нативная оболочка iOS (Capacitor) вокруг веб-приложения из ../calories",
+  "scripts": {
+    "sync": "cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}
