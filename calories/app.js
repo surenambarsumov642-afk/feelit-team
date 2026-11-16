@@ -1233,6 +1233,7 @@ function readProfile(base) {
 function renderSettings() {
   const p = S.profile, t = targets(), auto = calcTargets(p);
   $app.innerHTML = `
+    ${goldWin()}
     ${accountWin()}
     <div class="win"><div class="win-h">Уведомления и звук</div>
       <div class="small mb">Одно напоминание в день в удобное время. Если серия под угрозой — Система предупредит в 21:00. В воскресенье — отчёт недели. Не больше двух уведомлений в день.</div>
@@ -1267,6 +1268,7 @@ function renderSettings() {
     <div class="center tiny dim mb"><a href="./privacy.html" target="_blank" rel="noopener" style="color:inherit">Политика приватности</a> · <a href="./terms.html" target="_blank" rel="noopener" style="color:inherit">Условия</a></div>
     <div class="center tiny dim mb">Ingot · v5.0</div>`;
   document.getElementById("push-btn").onclick = togglePush;
+  bindGold();
   document.getElementById("rem-h").onchange = e => { S.remindHour = +e.target.value; save(); scheduleSync(500); toast(`Напомню в ${S.remindHour}:00`); };
   document.getElementById("snd-btn").onclick = () => { S.sound = S.sound === false; save(); render(); if (S.sound) sfx("achv"); };
   bindAccount();
@@ -1330,6 +1332,34 @@ async function togglePush() {
   } catch (e) { toast("Не удалось включить: " + (e.message || e), true); }
 }
 
+/* ---------- Ingot Gold (статус подписки; покупка через App Store появится в приложении для iPhone) ---------- */
+let ent = null, entAt = 0;
+async function loadEnt() {
+  if (!API_URL || !S.player || Date.now() - entAt < 60000) return;
+  entAt = Date.now();
+  try { ent = await api("entitlement", { token: S.player.token }); if (tab === "player") render(); } catch {}
+}
+function goldWin() {
+  loadEnt();
+  if (!ent || !(ent.gold || ent.enforce)) return "";
+  const until = ent.until ? new Date(ent.until).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" }) : "";
+  if (ent.gold) return `<div class="win gold-win"><div class="win-h">Ingot Gold<span class="right">активен</span></div>
+    <div class="small">До ${until}${ent.source === "afford" ? " · подарок Системы" : ""}. Спасибо, что ты с нами.</div>
+    ${NATIVE ? `<a class="btn ghost block mt" href="itms-apps://apps.apple.com/account/subscriptions">Управлять подпиской</a>` : ""}</div>`;
+  return `<div class="win gold-win"><div class="win-h">Ingot Gold</div>
+    <div class="small">До 3 навыков сразу · уровни навыка 2+ · тренажёр переговоров · безлимит фото еды · темы рангов.</div>
+    <div class="tiny muted mt">Всё основное бесплатно навсегда: тренировки, штрихкоды, ранги, история.</div>
+    ${ent.afford_available ? `<button class="btn ghost block mt" id="gold-afford">Не могу себе позволить</button>` : ""}</div>`;
+}
+function bindGold() {
+  const b = document.getElementById("gold-afford");
+  if (b) b.onclick = async () => {
+    if (!confirm("Система даст тебе 3 месяца Ingot Gold бесплатно. Без вопросов, раз в год. Принять?")) return;
+    b.disabled = true;
+    try { await api("gold_afford", { token: S.player.token }); entAt = 0; ent = null; await loadEnt(); toast("Ingot Gold открыт на 3 месяца"); render(); }
+    catch (e) { b.disabled = false; toast(e.message, true); }
+  };
+}
 function accountWin() {
   if (!S.player) return API_URL ? `<div class="win violet"><div class="win-h">Аккаунт</div>
     <div class="small muted mb">Ты ещё не в рейтинге.</div><button class="btn violet block" id="acc-reg">Войти в рейтинг</button></div>` : "";
