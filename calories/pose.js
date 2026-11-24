@@ -30,7 +30,7 @@ export function openCamera(o) {
       <div class="cam-st" id="cam-st">Загрузка Системы…</div></div></div>
     ${o.race ? `<div class="cam-race"><div><b id="cam-me">0</b><span>ты</span></div><div class="cam-timer" id="cam-timer">—</div><div><b id="cam-opp">0</b><span id="cam-oppn">соперник</span></div></div>` : ""}
     <div class="cam-count"><b id="cam-n">0</b>${o.target ? `<span>/ ${o.target}</span>` : ""}</div>
-    <div class="cam-bottom"><div class="tiny" id="cam-hint">${esc(ex.hint)}. Поставь телефон на пол или к стене в 2–3 метрах.</div>
+    <div class="cam-bottom"><div class="tiny" id="cam-hint">${esc(ex.hint)}. Можно лицом к камере или боком — Система сама поймёт.</div>
       ${o.race ? "" : `<button class="btn-epic block mt" id="cam-done">Готово</button>`}</div>`;
   document.body.appendChild(ov);
   const video = ov.querySelector("video"), canvas = ov.querySelector("canvas"), g = canvas.getContext("2d");
@@ -79,7 +79,7 @@ export function openCamera(o) {
     const lm = res && res.landmarks && res.landmarks[0];
     draw(lm);
     const r = counter.update(lm, now, video.videoWidth / Math.max(1, video.videoHeight));
-    $("cam-st").textContent = r.ok ? (r.phase === "down" ? "▼ вниз" : "▲ вверх") : r.hint;
+    $("cam-st").textContent = r.ok ? `${r.phase === "down" ? "▼ вниз" : "▲ вверх"} · ${r.mode === "front" ? "вид спереди" : "вид сбоку"}` : (r.hint || ex.hint);
     $("cam-st").classList.toggle("bad", !r.ok);
     if (r.rep) {
       $("cam-n").textContent = r.count; ov.querySelector(".cam-count").classList.remove("pop"); void ov.offsetWidth; ov.querySelector(".cam-count").classList.add("pop");
