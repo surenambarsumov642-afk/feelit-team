@@ -3,6 +3,7 @@ import { API_URL } from "./config.js";
 import { searchFoods, gramsFromText } from "./foods.js";
 import { initSkills, renderSkills, statusCard, skillXpByDate, shameTitle, finishedSkills, masteryRank, skillTodayState, skillToday, openWorldView, startSkillWith, resumeInterview, POPULAR } from "./skills.js";
 import { initGates, gatesWin, bindGates, settleGates } from "./gates.js";
+import { initStrength, openStrength, strengthOn, strengthDue, strengthDoneToday, strengthXpByDate, strengthSummary } from "./strength.js";
 import { initExams, effectiveRank, exMult, examWin, bindExam, settleExam, rankIdx, RANK_TITLE, RANKS, RANK_LV, rankName, rankMono, rankLabel, rankGlyph } from "./exams.js";
 import { phrase, sfx, dailyPhrase, RARITY } from "./phrases.js";
 import { showIntro } from "./intro.js";
@@ -242,6 +243,7 @@ function computeProgress() {
   let lvl = 1, lvlRest = 0, shields = 1, run = 0;
   const skXP = skillXpByDate();
   for (const a of S.adj || []) skXP[a.date] = (skXP[a.date] || 0) + a.xp;
+  for (const [d, x] of Object.entries(strengthXpByDate())) skXP[d] = (skXP[d] || 0) + x;
   const days = {};
   const first = [start, ...Object.keys(byDate), ...Object.keys(S.workouts)].sort()[0];
   // корректировки XP за даты раньше первого дня учитываем в первом дне
@@ -580,6 +582,7 @@ function todayWin(P) {
   else rows.push({ done: false, ic: "✦", t: "Выбери навык", p: "ИИ составит личный план на 30 дней", xp: "", attr: "data-skgo", cta: true });
   const w = d.q.workout;
   rows.push({ done: w.done, ic: "⚔", t: "Тренировка", p: w.prog, xp: w.done && !w.verified ? "+40" : "+80", attr: `data-workout="${td}"` });
+  if (strengthOn() && (strengthDue() || strengthDoneToday())) rows.push({ done: strengthDoneToday(), ic: "⤒", t: "Турник и брусья", p: strengthSummary(), xp: "+40", attr: "data-strength" });
   rows.push({ done: d.q.log.done, ic: "◎", t: "Записать еду", p: d.q.log.prog, xp: "+" + XP.log, attr: "data-godiary" });
   rows.push({ done: d.q.norm.done, fail: d.q.norm.over, ic: "◐", t: "Уложиться в норму", p: d.q.norm.prog + (d.q.norm.over ? " · превышено" : ""), xp: "+" + XP.norm, attr: "data-godiary" });
   if (due.length) rows.push({ done: false, ic: "🌍", t: "Выход в мир", p: `Написать: ${due.slice(0, 2).map(x => x.c.name).join(", ")}${due.length > 2 ? "…" : ""}`, xp: "", attr: `data-wdue="${due[0].chain}"` });
@@ -739,6 +742,7 @@ function renderStatus(P) {
   $app.querySelector("[data-act=manual]").onclick = () => openManual({ date: today() });
   $app.querySelector("[data-act=workout]").onclick = () => openWorkout(td, d.lvl);
   $app.querySelectorAll("[data-skgo]").forEach(b => b.onclick = () => { tab = "skills"; render(); window.scrollTo(0, 0); });
+  $app.querySelectorAll("[data-strength]").forEach(b => b.onclick = openStrength);
   $app.querySelectorAll("[data-report]").forEach(b => b.onclick = () => { openReport(P); render(); });
   $app.querySelectorAll("[data-skresume]").forEach(b => b.onclick = () => { tab = "skills"; resumeInterview(); window.scrollTo(0, 0); });
   $app.querySelectorAll("[data-wdue]").forEach(b => b.onclick = () => { tab = "skills"; openWorldView(b.dataset.wdue); });
@@ -1210,6 +1214,7 @@ function openWorkout(date, lvl) {
             </div></div>`;
         }).join("")}
         <div class="notice mt">📷 <b>С камерой</b> — тренировка подтверждена: +${XP.workout} XP и ✓. Вручную — +${Math.round(XP.workout / 2)} XP.${exMult(date) !== 1 ? "<br><b class=\"bad\">Идёт экзамен: отжимания, приседания и скручивания засчитываются только с камеры.</b>" : ""}<br>Камера считает повторы прямо на телефоне — видео никуда не отправляется.</div>
+        <button class="btn violet block mt" id="wk-str">⤒ Турник и брусья${strengthOn() ? (strengthDoneToday() ? " · ✓ сегодня" : strengthDue() ? " · сегодня день силы" : " · сегодня отдых") : " · программа с нуля"}</button>
         <button class="btn block mt" id="wk-close">Готово</button>`;
       const set = (id, v) => {
         const ex = EX.find(e => e.id === id);
@@ -1243,6 +1248,7 @@ function openWorkout(date, lvl) {
         b.disabled = false;
       });
       el.querySelector("#wk-close").onclick = close;
+      el.querySelector("#wk-str").onclick = () => { close(); openStrength(); };
     };
     draw();
   });
@@ -1951,6 +1957,7 @@ initSkills({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, p
 initWorld({ S: () => S, save, api, sheet, system, toast, esc, today, addDays, render, postEvent });
 initGates({ S: () => S, save, api, esc, today, addDays, parseD, system, toast, render, postEvent, sheet });
 initExams({ S: () => S, save, today, addDays, parseD, system, postEvent, render, esc, sheet });
+initStrength({ S: () => S, save, sheet, system, toast, render, esc, today, addDays, parseD });
 
 const fileInput = document.createElement("input");
 fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.className = "hidden";
